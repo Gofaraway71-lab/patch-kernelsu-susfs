@@ -213,13 +213,16 @@ build_kernel() {
     CPUS=$(nproc --all)
 
     # Use 'yes ""' to auto-accept default for any config prompts
-    # LLVM_IAS=0 to use GCC assembler instead of Clang's integrated assembler (vDSO compatibility)
+    # LLVM_IAS=1 to use Clang's integrated assembler (handles DWARF debug info properly)
     yes "" | make -j"$CPUS" O=out ARCH=arm64 CC=clang \
         CLANG_TRIPLE=aarch64-linux-gnu- \
         CROSS_COMPILE=aarch64-linux-android- \
         CROSS_COMPILE_ARM32=arm-linux-androideabi- \
-        LLVM_IAS=0 \
+        LLVM_IAS=1 \
+        LD=ld.lld \
+        AR=llvm-ar \
         NM=llvm-nm \
+        OBJCOPY=llvm-objcopy \
         OBJDUMP=llvm-objdump \
         STRIP=llvm-strip \
         2>&1 | tee build.log

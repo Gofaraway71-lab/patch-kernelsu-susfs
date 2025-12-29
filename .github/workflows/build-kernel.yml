@@ -240,12 +240,17 @@ jobs:
         run: |
           cd kernel
 
+          # Use LLVM_IAS=1 to use Clang's integrated assembler
+          # This properly handles DWARF debug info that GNU as doesn't understand
           make -j$(nproc --all) O=out ARCH=arm64 CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-android- \
             CROSS_COMPILE_ARM32=arm-linux-androideabi- \
-            LLVM_IAS=0 \
+            LLVM_IAS=1 \
+            LD=ld.lld \
+            AR=llvm-ar \
             NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
             OBJDUMP=llvm-objdump \
             STRIP=llvm-strip \
             2>&1 | tee build.log
