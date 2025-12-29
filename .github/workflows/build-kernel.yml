@@ -143,37 +143,55 @@ jobs:
               ;;
           esac
 
-      - name: Fix KernelSU Integration
+      - name: Fix KernelSU for Kernel 4.19 Compatibility
         run: |
           cd kernel
-          # The kernel source has pre-embedded KernelSU VFS hooks that need the header included
-          # Check if fs/exec.c has KernelSU hooks but missing include
-          if grep -q "ksu_handle_execveat" fs/exec.c; then
-            echo "Found KernelSU hooks in fs/exec.c, checking includes..."
-            if ! grep -q "#include.*ksu.h" fs/exec.c && ! grep -q "#include.*kernelsu" fs/exec.c; then
-              echo "Adding KernelSU include to fs/exec.c..."
-              # Find KernelSU directory
-              KSU_DIR=$(find . -maxdepth 1 -type d -name "KernelSU*" | head -1)
-              if [ -n "$KSU_DIR" ]; then
-                # Add include after other includes
-                sed -i '/#include <linux\/fs.h>/a #include <linux/ksu.h>' fs/exec.c 2>/dev/null || \
-                sed -i '1a #include <linux/ksu.h>' fs/exec.c
-                echo "Added KernelSU include"
+
+          KSU_DIR=$(find . -maxdepth 1 -type d -name "KernelSU*" | head -1)
+          echo "KernelSU directory: $KSU_DIR"
+
+          # Create compatibility header for MODULE_IMPORT_NS (doesn't exist in kernel 4.19)
+          COMPAT_HEADER="include/linux/ksu_compat.h"
+          printf '/* KernelSU compatibility header for kernel 4.19 */\n' > "$COMPAT_HEADER"
+          printf '#ifndef _LINUX_KSU_COMPAT_H\n' >> "$COMPAT_HEADER"
+          printf '#define _LINUX_KSU_COMPAT_H\n\n' >> "$COMPAT_HEADER"
+          printf '/* MODULE_IMPORT_NS was introduced in kernel 5.4 */\n' >> "$COMPAT_HEADER"
+          printf '#ifndef MODULE_IMPORT_NS\n' >> "$COMPAT_HEADER"
+          printf '#define MODULE_IMPORT_NS(ns)\n' >> "$COMPAT_HEADER"
+          printf '#endif\n\n' >> "$COMPAT_HEADER"
+          printf '#endif /* _LINUX_KSU_COMPAT_H */\n' >> "$COMPAT_HEADER"
+          echo "Created compatibility header: $COMPAT_HEADER"
+          cat "$COMPAT_HEADER"
+
+          if [ -n "$KSU_DIR" ] && [ -d "$KSU_DIR" ]; then
+            echo "Fixing MODULE_IMPORT_NS compatibility..."
+            for ksu_file in $(find "$KSU_DIR/kernel" -name "*.c" 2>/dev/null); do
+              if grep -q "MODULE_IMPORT_NS" "$ksu_file"; then
+                echo "Patching $ksu_file..."
+                if ! grep -q "ksu_compat.h" "$ksu_file"; then
+                  sed -i '1i #include <linux/ksu_compat.h>' "$ksu_file"
+                fi
               fi
-            fi
+            done
           fi
 
-          # Ensure KernelSU exports the required symbols
-          KSU_DIR=$(find . -maxdepth 1 -type d -name "KernelSU*" | head -1)
-          if [ -n "$KSU_DIR" ] && [ -d "$KSU_DIR" ]; then
-            # Check if ksu.h exists and has the required functions
-            if [ -f "$KSU_DIR/kernel/include/linux/ksu.h" ]; then
-              echo "KernelSU header found at $KSU_DIR/kernel/include/linux/ksu.h"
-              cat "$KSU_DIR/kernel/include/linux/ksu.h" | head -50
+          if [ -d "drivers/kernelsu" ]; then
+            for ksu_file in drivers/kernelsu/*.c; do
+              if [ -f "$ksu_file" ] && grep -q "MODULE_IMPORT_NS" "$ksu_file"; then
+                echo "Patching $ksu_file..."
+                if ! grep -q "ksu_compat.h" "$ksu_file"; then
+                  sed -i '1i #include <linux/ksu_compat.h>' "$ksu_file"
+                fi
+              fi
+            done
+          fi
+
+          if grep -q "ksu_handle_execveat" fs/exec.c 2>/dev/null; then
+            echo "Found KernelSU hooks in fs/exec.c"
+            if ! grep -q "ksu.h" fs/exec.c; then
+              echo "Adding KernelSU include..."
+              sed -i '/#include <linux\/fs.h>/a #include <linux/ksu.h>' fs/exec.c || true
             fi
-            # List files in KernelSU
-            echo "KernelSU kernel files:"
-            find "$KSU_DIR/kernel" -name "*.h" -o -name "*.c" | head -20
           fi
 
       - name: Apply SUSFS Patches
