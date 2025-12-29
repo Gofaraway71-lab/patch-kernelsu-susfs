@@ -74,7 +74,7 @@ jobs:
       - name: Setup Clang Toolchain
         run: |
           mkdir -p $GITHUB_WORKSPACE/toolchains/clang
-          curl -sL "https://github.com/ZyCromerZ/Clang/releases/download/21.0.0-20250626-release/Clang-21.0.0-20250626.tar.gz" | \
+          curl -sL "https://github.com/ZyCromerZ/Clang/releases/download/15.0.7-20251111-release/Clang-15.0.7-20251111.tar.gz" | \
             tar -xzf - -C $GITHUB_WORKSPACE/toolchains/clang
           echo "$GITHUB_WORKSPACE/toolchains/clang/bin" >> $GITHUB_PATH
 
