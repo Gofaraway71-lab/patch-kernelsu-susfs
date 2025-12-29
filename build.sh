@@ -41,6 +41,41 @@ clone_patches() {
     fi
 }
 
+# Fix vDSO compilation for Clang + GNU assembler
+fix_vdso() {
+    log "Fixing vDSO compilation for Clang compatibility..."
+    cd kernel_source
+
+    # Fix vDSO compilation error with Clang + GNU assembler
+    # The issue is Clang generates CFI directives that GNU as doesn't understand
+    VDSO_MAKEFILE="arch/arm64/kernel/vdso/Makefile"
+    if [ -f "$VDSO_MAKEFILE" ]; then
+        log "Patching vDSO Makefile..."
+        # Add flag to disable CFI directives that confuse GNU assembler
+        sed -i 's/ccflags-y += -fno-stack-protector/ccflags-y += -fno-stack-protector -fno-asynchronous-unwind-tables/' "$VDSO_MAKEFILE"
+        # If that pattern doesn't exist, try adding it after other ccflags
+        if ! grep -q "fno-asynchronous-unwind-tables" "$VDSO_MAKEFILE"; then
+            sed -i '/^ccflags-y/s/$/ -fno-asynchronous-unwind-tables/' "$VDSO_MAKEFILE"
+        fi
+        # Fallback: append if still not present
+        if ! grep -q "fno-asynchronous-unwind-tables" "$VDSO_MAKEFILE"; then
+            echo 'ccflags-y += -fno-asynchronous-unwind-tables' >> "$VDSO_MAKEFILE"
+        fi
+        log "vDSO Makefile patched"
+    fi
+
+    # Also patch vdso32 if it exists
+    VDSO32_MAKEFILE="arch/arm64/kernel/vdso32/Makefile"
+    if [ -f "$VDSO32_MAKEFILE" ]; then
+        log "Patching vDSO32 Makefile..."
+        if ! grep -q "fno-asynchronous-unwind-tables" "$VDSO32_MAKEFILE"; then
+            echo 'ccflags-y += -fno-asynchronous-unwind-tables' >> "$VDSO32_MAKEFILE"
+        fi
+    fi
+
+    cd ..
+}
+
 # Setup KernelSU based on variant
 setup_kernelsu() {
     log "Setting up KernelSU (variant: $KERNELSU_VARIANT)..."
@@ -266,6 +301,7 @@ main() {
 
     clone_kernel
     clone_patches
+    fix_vdso
     setup_kernelsu
     apply_susfs
     apply_vfs_patches
