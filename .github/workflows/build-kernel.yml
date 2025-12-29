@@ -23,9 +23,9 @@ on:
         default: 'OnePlus8_Series'
 
 env:
-  # Use clean kernel without KSU pre-installed
-  KERNEL_SOURCE: https://github.com/JackA1ltman/android_kernel_oneplus_sm8250_los_noksu.git
-  KERNEL_BRANCH: staging
+  # Official OnePlus kernel source for OOS 13.1
+  KERNEL_SOURCE: https://github.com/OnePlusOSS/android_kernel_oneplus_sm8250.git
+  KERNEL_BRANCH: oneplus/sm8250_t_13.1_op8
   DEFCONFIG: vendor/kona-perf_defconfig
   DEVICE_NAME: ${{ github.event.inputs.device_name || 'OnePlus8_Series' }}
   KERNELSU_VARIANT: ${{ github.event.inputs.kernelsu_variant || 'sukisu' }}
