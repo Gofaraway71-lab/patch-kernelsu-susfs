@@ -6,9 +6,10 @@ on:
       kernelsu_variant:
         description: 'KernelSU variant'
         required: true
-        default: 'sukisu'
+        default: 'ksu'
         type: choice
         options:
+          - ksu
           - sukisu
           - next
           - rsuntk
@@ -28,7 +29,7 @@ env:
   KERNEL_BRANCH: oneplus/sm8250_t_13.1_op8
   DEFCONFIG: vendor/kona-perf_defconfig
   DEVICE_NAME: ${{ github.event.inputs.device_name || 'OnePlus8_Series' }}
-  KERNELSU_VARIANT: ${{ github.event.inputs.kernelsu_variant || 'sukisu' }}
+  KERNELSU_VARIANT: ${{ github.event.inputs.kernelsu_variant || 'ksu' }}
   SUSFS_ENABLED: ${{ github.event.inputs.susfs_enabled || 'true' }}
   # Patches repo
   PATCHES_REPO: JackA1ltman/NonGKI_Kernel_Patches
@@ -97,6 +98,10 @@ jobs:
           cd kernel
 
           case "$KERNELSU_VARIANT" in
+            ksu)
+              echo "Setting up original KernelSU (tiann)..."
+              curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+              ;;
             sukisu)
               echo "Setting up SukiSU-Ultra..."
               curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
