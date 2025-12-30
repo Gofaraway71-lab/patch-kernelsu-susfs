@@ -255,11 +255,20 @@ jobs:
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b kernel-4.19 susfs4ksu || \
           git clone --depth=1 https://github.com/sidex15/susfs4ksu.git -b kernel-4.19 susfs4ksu
 
-          # Step 1: Apply revert commit in KernelSU (as per official instructions)
-          echo "Step 1: Reverting kprobe commit in KernelSU..."
+          # Step 1: Apply revert commit in KernelSU (only for original tiann KernelSU)
+          # rsuntk KernelSU may not have this commit or it's already handled
+          echo "Step 1: Reverting kprobe commit in KernelSU (if applicable)..."
           if [ -n "$KSU_DIR" ] && [ -d "$KSU_DIR" ]; then
             cd "$KSU_DIR"
-            git revert --no-commit 898e9d4f8ca9b2f46b0c6b36b80a872b5b88d899 2>/dev/null || echo "Revert may not be needed for this version"
+            # Only attempt revert if the commit exists and isn't conflicting
+            if git cat-file -e 898e9d4f8ca9b2f46b0c6b36b80a872b5b88d899 2>/dev/null; then
+              git revert --no-commit 898e9d4f8ca9b2f46b0c6b36b80a872b5b88d899 2>/dev/null || {
+                echo "Revert created conflict, resetting..."
+                git checkout -- .
+              }
+            else
+              echo "Commit not found in this KernelSU version, skipping revert"
+            fi
             cd ..
           fi
 
