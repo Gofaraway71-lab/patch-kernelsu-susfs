@@ -228,23 +228,28 @@ jobs:
           cd kernel
 
           # SUSFS requires specific KernelSU integration patches
-          # KernelSU-Next is not compatible with standard SUSFS patches
-          # For SUSFS support, we need to use original tiann KernelSU
-          if [ "$KERNELSU_VARIANT" = "next" ] || [ "$KERNELSU_VARIANT" = "rsuntk" ]; then
-            echo "WARNING: $KERNELSU_VARIANT is not fully compatible with SUSFS patches"
-            echo "Switching to original tiann KernelSU for SUSFS compatibility..."
+          # The susfs4ksu patches (kernel-4.19 branch) are designed for older KernelSU
+          # We need to use a compatible KernelSU version (v0.7.x series)
+          echo "Setting up KernelSU v0.7.6 for SUSFS compatibility..."
 
-            # Remove existing KernelSU
-            rm -rf KernelSU*
-            rm -rf drivers/kernelsu
+          # Remove any existing KernelSU
+          rm -rf KernelSU*
+          rm -rf drivers/kernelsu
 
-            # Install original tiann KernelSU (compatible with SUSFS)
-            curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+          # Clone KernelSU v0.7.6 which is compatible with susfs4ksu kernel-4.19 patches
+          git clone --depth=1 -b v0.7.6 https://github.com/tiann/KernelSU.git
 
-            # Update the variant for naming
-            export KERNELSU_VARIANT="ksu"
-            echo "KERNELSU_VARIANT=ksu" >> $GITHUB_ENV
+          # Link drivers/kernelsu
+          ln -sf "$(pwd)/KernelSU/kernel" "$(pwd)/drivers/kernelsu"
+
+          # Add to Makefile if needed
+          if ! grep -q "kernelsu" "drivers/Makefile"; then
+            echo "obj-y += kernelsu/" >> drivers/Makefile
           fi
+
+          # Update the variant for naming
+          export KERNELSU_VARIANT="ksu-susfs"
+          echo "KERNELSU_VARIANT=ksu-susfs" >> $GITHUB_ENV
 
           # Find KernelSU directory
           KSU_DIR=$(find . -maxdepth 1 -type d -name "KernelSU*" | head -1)
