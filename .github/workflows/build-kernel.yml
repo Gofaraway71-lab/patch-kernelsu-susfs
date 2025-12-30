@@ -324,8 +324,75 @@ jobs:
       - name: Apply VFS Hook Patches
         run: |
           cd kernel
+
+          # The vfs_hook_patches.sh has a bug for this kernel version:
+          # It adds hook CALLS at line 1937 but extern DECLARATIONS at line 1942,
+          # causing "undeclared identifier" errors.
+          # Fix: Create a custom patch script that works for this kernel
+
+          echo "=== Creating custom KernelSU VFS patch for fs/exec.c ==="
+
+          cat > /tmp/patch_exec.py << 'PATCHSCRIPT'
+          import re
+          import sys
+
+          with open('fs/exec.c', 'r') as f:
+              content = f.read()
+
+          # Check if already patched
+          if 'extern bool ksu_execveat_hook' in content:
+              print("fs/exec.c already patched")
+              sys.exit(0)
+
+          # Add extern declarations after includes (before first function)
+          extern_decl = '''
+          #ifdef CONFIG_KSU
+          extern bool ksu_execveat_hook __read_mostly;
+          extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,
+          			void *envp, int *flags);
+          extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
+          				void *argv, void *envp, int *flags);
+          #endif
+          '''
+
+          # Find position after last #include before code starts
+          # Insert before "static int bprm_mm_init"
+          pattern = r'(static int bprm_mm_init\(struct linux_binprm)'
+          content = re.sub(pattern, extern_decl + r'\1', content, count=1)
+
+          # Add hook call in do_execve function
+          # Find the specific pattern in do_execve (not do_execve_file)
+          hook_code = '''
+          #ifdef CONFIG_KSU
+          	if (unlikely(ksu_execveat_hook))
+          		ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
+          	else
+          		ksu_handle_execveat_sucompat((int *)AT_FDCWD, &filename, NULL, NULL, NULL);
+          #endif
+          '''
+
+          # Pattern to find do_execve's return statement
+          pattern = r'(int do_execve\(struct filename \*filename,.*?struct user_arg_ptr envp = \{ \.ptr\.native = __envp \};)'
+          match = re.search(pattern, content, re.DOTALL)
+          if match:
+              insert_pos = match.end()
+              content = content[:insert_pos] + hook_code + content[insert_pos:]
+
+          with open('fs/exec.c', 'w') as f:
+              f.write(content)
+
+          print("fs/exec.c patched successfully")
+          PATCHSCRIPT
+
+          python3 /tmp/patch_exec.py
+
+          # Show the patched areas
+          echo "=== KernelSU patches in fs/exec.c ==="
+          grep -n "CONFIG_KSU\|ksu_" fs/exec.c | head -30
+
+          # Run the regular vfs_hook_patches.sh for other files (fs/exec.c will be skipped)
           if [ -f "../patches/vfs_hook_patches.sh" ]; then
-            echo "Applying VFS hook patches..."
+            echo "=== Running vfs_hook_patches.sh for remaining files ==="
             bash ../patches/vfs_hook_patches.sh || echo "VFS patches may already be applied"
           fi
 
