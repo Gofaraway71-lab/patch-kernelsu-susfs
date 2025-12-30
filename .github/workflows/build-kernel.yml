@@ -302,6 +302,11 @@ jobs:
         run: |
           cd kernel
 
+          # Debug: Check paths
+          echo "Current directory: $(pwd)"
+          echo "Checking for patches directory..."
+          ls -la ../patches/ || echo "Patches directory not found!"
+
           # KernelSU-Next uses LSM hooks instead of manual VFS patches
           # For Non-GKI builds (including SUSFS), manual VFS hooks ARE required
           # See: https://kernelsu.org/guide/how-to-integrate-for-non-gki.html#manually-modify-the-kernel-source
@@ -310,7 +315,10 @@ jobs:
           else
             echo "Applying VFS hook patches for $KERNELSU_VARIANT (required for Non-GKI)..."
             if [ -f "../patches/vfs_hook_patches.sh" ]; then
-              bash ../patches/vfs_hook_patches.sh || echo "VFS patches may already be applied"
+              echo "Found vfs_hook_patches.sh, executing..."
+              bash -x ../patches/vfs_hook_patches.sh 2>&1 || echo "VFS patches may already be applied"
+            else
+              echo "ERROR: ../patches/vfs_hook_patches.sh not found!"
             fi
           fi
 
