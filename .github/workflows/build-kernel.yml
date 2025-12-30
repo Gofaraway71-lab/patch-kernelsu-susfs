@@ -227,6 +227,25 @@ jobs:
         run: |
           cd kernel
 
+          # SUSFS requires specific KernelSU integration patches
+          # KernelSU-Next is not compatible with standard SUSFS patches
+          # For SUSFS support, we need to use rsuntk's KernelSU or original KernelSU
+          if [ "$KERNELSU_VARIANT" = "next" ]; then
+            echo "WARNING: KernelSU-Next is not compatible with standard SUSFS patches"
+            echo "Switching to rsuntk KernelSU for SUSFS compatibility..."
+
+            # Remove KernelSU-Next
+            rm -rf KernelSU*
+            rm -rf drivers/kernelsu
+
+            # Install rsuntk KernelSU instead (compatible with SUSFS)
+            curl -LSs "https://raw.githubusercontent.com/rsuntk/KernelSU/main/kernel/setup.sh" | bash -s main
+
+            # Update the variant for naming
+            export KERNELSU_VARIANT="rsuntk"
+            echo "KERNELSU_VARIANT=rsuntk" >> $GITHUB_ENV
+          fi
+
           # Find KernelSU directory
           KSU_DIR=$(find . -maxdepth 1 -type d -name "KernelSU*" | head -1)
           echo "KernelSU directory: $KSU_DIR"
@@ -280,12 +299,16 @@ jobs:
         run: |
           cd kernel
 
+          # Check the actual KernelSU variant (may have been switched for SUSFS compatibility)
+          ACTUAL_VARIANT="$KERNELSU_VARIANT"
+
           # KernelSU-Next uses LSM hooks instead of manual VFS patches
           # Only apply VFS patches for non-Next variants (ksu, sukisu, rsuntk)
-          if [ "$KERNELSU_VARIANT" = "next" ]; then
+          # Note: If SUSFS was enabled with 'next', we already switched to rsuntk
+          if [ "$ACTUAL_VARIANT" = "next" ] && [ "$SUSFS_ENABLED" != "true" ]; then
             echo "Skipping VFS hook patches - KernelSU-Next uses LSM hooks"
           else
-            echo "Applying VFS hook patches for $KERNELSU_VARIANT..."
+            echo "Applying VFS hook patches for $ACTUAL_VARIANT..."
             if [ -f "../patches/vfs_hook_patches.sh" ]; then
               bash ../patches/vfs_hook_patches.sh || echo "VFS patches may already be applied"
             fi
