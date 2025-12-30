@@ -144,51 +144,6 @@ jobs:
               ;;
           esac
 
-      - name: Fix KernelSU VFS Hooks
-        run: |
-          cd kernel
-          # KernelSU setup.sh may add VFS hooks without proper extern declarations
-          # This step ensures the proper declarations are in place
-
-          echo "=== Checking KernelSU setup ==="
-
-          # Find KernelSU directory
-          KSU_DIR=$(find . -maxdepth 1 -type d -name "KernelSU*" | head -1)
-          echo "KernelSU directory: $KSU_DIR"
-
-          # Check fs/exec.c for KernelSU hooks
-          echo "=== Checking fs/exec.c for KernelSU hooks ==="
-          if grep -qE "ksu_execveat_hook|ksu_handle_execveat" fs/exec.c; then
-            echo "Found KernelSU hooks in fs/exec.c"
-            grep -n "ksu_" fs/exec.c | head -20
-
-            # Check if proper extern declarations exist
-            if ! grep -q "extern bool ksu_execveat_hook" fs/exec.c; then
-              echo "Missing extern declarations - KernelSU setup.sh added incomplete hooks"
-              echo "Removing incomplete hooks and will apply proper patches later..."
-
-              # Remove the incomplete hook code
-              cp fs/exec.c fs/exec.c.bak
-              sed -i '/ksu_execveat_hook/d' fs/exec.c
-              sed -i '/ksu_handle_execveat/d' fs/exec.c
-              echo "Incomplete hooks removed - vfs_hook_patches.sh will add proper hooks"
-            else
-              echo "Proper extern declarations found"
-            fi
-          else
-            echo "No KernelSU hooks found in fs/exec.c - vfs_hook_patches.sh will add them"
-          fi
-
-          # Also check and fix other VFS files if KernelSU modified them improperly
-          for f in fs/open.c fs/read_write.c fs/stat.c; do
-            if [ -f "$f" ] && grep -qE "ksu_handle_" "$f"; then
-              if ! grep -q "extern.*ksu_" "$f"; then
-                echo "Removing incomplete hooks from $f..."
-                sed -i '/ksu_handle_/d' "$f"
-              fi
-            fi
-          done
-
       - name: Fix KernelSU for Kernel 4.19 Compatibility
         run: |
           cd kernel
@@ -325,75 +280,15 @@ jobs:
         run: |
           cd kernel
 
-          # The vfs_hook_patches.sh has a bug for this kernel version:
-          # It adds hook CALLS at line 1937 but extern DECLARATIONS at line 1942,
-          # causing "undeclared identifier" errors.
-          # Fix: Create a custom patch script that works for this kernel
-
-          echo "=== Creating custom KernelSU VFS patch for fs/exec.c ==="
-
-          cat > /tmp/patch_exec.py << 'PATCHSCRIPT'
-          import re
-          import sys
-
-          with open('fs/exec.c', 'r') as f:
-              content = f.read()
-
-          # Check if already patched
-          if 'extern bool ksu_execveat_hook' in content:
-              print("fs/exec.c already patched")
-              sys.exit(0)
-
-          # Add extern declarations after includes (before first function)
-          extern_decl = '''
-          #ifdef CONFIG_KSU
-          extern bool ksu_execveat_hook __read_mostly;
-          extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,
-          			void *envp, int *flags);
-          extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
-          				void *argv, void *envp, int *flags);
-          #endif
-          '''
-
-          # Find position after last #include before code starts
-          # Insert before "static int bprm_mm_init"
-          pattern = r'(static int bprm_mm_init\(struct linux_binprm)'
-          content = re.sub(pattern, extern_decl + r'\1', content, count=1)
-
-          # Add hook call in do_execve function
-          # Find the specific pattern in do_execve (not do_execve_file)
-          hook_code = '''
-          #ifdef CONFIG_KSU
-          	if (unlikely(ksu_execveat_hook))
-          		ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
-          	else
-          		ksu_handle_execveat_sucompat((int *)AT_FDCWD, &filename, NULL, NULL, NULL);
-          #endif
-          '''
-
-          # Pattern to find do_execve's return statement
-          pattern = r'(int do_execve\(struct filename \*filename,.*?struct user_arg_ptr envp = \{ \.ptr\.native = __envp \};)'
-          match = re.search(pattern, content, re.DOTALL)
-          if match:
-              insert_pos = match.end()
-              content = content[:insert_pos] + hook_code + content[insert_pos:]
-
-          with open('fs/exec.c', 'w') as f:
-              f.write(content)
-
-          print("fs/exec.c patched successfully")
-          PATCHSCRIPT
-
-          python3 /tmp/patch_exec.py
-
-          # Show the patched areas
-          echo "=== KernelSU patches in fs/exec.c ==="
-          grep -n "CONFIG_KSU\|ksu_" fs/exec.c | head -30
-
-          # Run the regular vfs_hook_patches.sh for other files (fs/exec.c will be skipped)
-          if [ -f "../patches/vfs_hook_patches.sh" ]; then
-            echo "=== Running vfs_hook_patches.sh for remaining files ==="
-            bash ../patches/vfs_hook_patches.sh || echo "VFS patches may already be applied"
+          # KernelSU-Next uses LSM hooks instead of manual VFS patches
+          # Only apply VFS patches for non-Next variants (ksu, sukisu, rsuntk)
+          if [ "$KERNELSU_VARIANT" = "next" ]; then
+            echo "Skipping VFS hook patches - KernelSU-Next uses LSM hooks"
+          else
+            echo "Applying VFS hook patches for $KERNELSU_VARIANT..."
+            if [ -f "../patches/vfs_hook_patches.sh" ]; then
+              bash ../patches/vfs_hook_patches.sh || echo "VFS patches may already be applied"
+            fi
           fi
 
       - name: Configure Kernel
@@ -412,27 +307,43 @@ jobs:
           # Enable KernelSU
           scripts/config --file out/.config -e KSU
 
-          # Disable broken OPLUS charging drivers (have incomplete struct definitions)
-          # These drivers have missing header definitions that cause build failures
+          # Disable ALL OPLUS charging/wireless drivers to prevent linker errors
+          # These drivers have missing definitions and cross-references that cause build failures
+          echo "=== Disabling all OPLUS charging drivers ==="
+          scripts/config --file out/.config -d OPLUS_CHG || true
           scripts/config --file out/.config -d OPLUS_CHG_V1 || true
+          scripts/config --file out/.config -d OPLUS_CHG_V2 || true
           scripts/config --file out/.config -d OPLUS_CHG_WPC || true
           scripts/config --file out/.config -d OPLUS_CHG_OP_WLCHG || true
-          scripts/config --file out/.config -d CONFIG_OPLUS_CHG_V1 || true
+          scripts/config --file out/.config -d OPLUS_WIRELESS_CHARGER || true
 
           # Force disable by directly editing the config
+          sed -i 's/CONFIG_OPLUS_CHG=y/# CONFIG_OPLUS_CHG is not set/' out/.config || true
+          sed -i 's/CONFIG_OPLUS_CHG=m/# CONFIG_OPLUS_CHG is not set/' out/.config || true
           sed -i 's/CONFIG_OPLUS_CHG_V1=y/# CONFIG_OPLUS_CHG_V1 is not set/' out/.config || true
           sed -i 's/CONFIG_OPLUS_CHG_V1=m/# CONFIG_OPLUS_CHG_V1 is not set/' out/.config || true
+          sed -i 's/CONFIG_OPLUS_CHG_V2=y/# CONFIG_OPLUS_CHG_V2 is not set/' out/.config || true
+          sed -i 's/CONFIG_OPLUS_WIRELESS_CHARGER=y/# CONFIG_OPLUS_WIRELESS_CHARGER is not set/' out/.config || true
 
-          # Also disable at Makefile level as failsafe - prevent oplus_wlchg_policy.c from being compiled
-          if [ -f "drivers/power/oplus/v1/Makefile" ]; then
-            echo "Disabling broken OPLUS V1 wireless charging driver at Makefile level..."
-            sed -i 's/oplus_wlchg_policy.o//' drivers/power/oplus/v1/Makefile
-            sed -i '/oplus_wlchg_policy/d' drivers/power/oplus/v1/Makefile
+          # Disable at Makefile level - comment out entire oplus/v1 and wireless charging
+          if [ -d "drivers/power/oplus/v1" ]; then
+            echo "Disabling OPLUS V1 charging driver at Makefile level..."
+            echo "# Disabled due to build errors" > drivers/power/oplus/v1/Makefile
+          fi
+          if [ -d "drivers/power/oplus/wireless_ic" ]; then
+            echo "Disabling OPLUS wireless charging driver at Makefile level..."
+            echo "# Disabled due to build errors" > drivers/power/oplus/wireless_ic/Makefile
+          fi
+
+          # Also check parent Makefile
+          if [ -f "drivers/power/oplus/Makefile" ]; then
+            sed -i '/v1/d' drivers/power/oplus/Makefile
+            sed -i '/wireless/d' drivers/power/oplus/Makefile
           fi
 
           # Verify config
-          echo "=== Checking OPLUS_CHG config status ==="
-          grep -i "OPLUS_CHG" out/.config || echo "No OPLUS_CHG config found"
+          echo "=== Checking OPLUS config status ==="
+          grep -i "OPLUS" out/.config | head -20 || echo "No OPLUS config found"
 
           # Enable SUSFS if enabled
           if [ "$SUSFS_ENABLED" = "true" ]; then
