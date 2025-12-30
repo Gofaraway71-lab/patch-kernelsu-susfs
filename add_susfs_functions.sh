@@ -9,36 +9,39 @@ if [ ! -f "$SELINUX_C" ]; then
     exit 1
 fi
 
+echo "Checking SUSFS state in selinux.c..."
+
+# Check if SUSFS variables already exist (partial patch may have added them)
+VARS_EXIST=false
+if grep -q "susfs_ksu_sid" "$SELINUX_C"; then
+    VARS_EXIST=true
+    echo "SUSFS variables already present"
+fi
+
 # Check if SUSFS functions already exist
+FUNCS_EXIST=false
 if grep -q "susfs_is_current_ksu_domain" "$SELINUX_C"; then
-    echo "SUSFS functions already present in selinux.c"
+    FUNCS_EXIST=true
+    echo "SUSFS functions already present"
+fi
 
-    # Just add EXPORT_SYMBOL if missing
-    if ! grep -q "EXPORT_SYMBOL(susfs_is_current_ksu_domain)" "$SELINUX_C"; then
-        echo "Adding EXPORT_SYMBOL declarations..."
-        cat >> "$SELINUX_C" << 'EOF'
+# Check if EXPORT_SYMBOL already exists
+EXPORTS_EXIST=false
+if grep -q "EXPORT_SYMBOL(susfs_is_current_ksu_domain)" "$SELINUX_C"; then
+    EXPORTS_EXIST=true
+    echo "EXPORT_SYMBOL already present"
+fi
 
-/* SUSFS symbol exports for fs/susfs.c */
-#ifdef CONFIG_KSU_SUSFS
-EXPORT_SYMBOL(susfs_is_current_ksu_domain);
-EXPORT_SYMBOL(susfs_is_current_zygote_domain);
-EXPORT_SYMBOL(susfs_is_current_init_domain);
-EXPORT_SYMBOL(susfs_is_sid_equal);
-EXPORT_SYMBOL(susfs_set_ksu_sid);
-EXPORT_SYMBOL(susfs_set_zygote_sid);
-EXPORT_SYMBOL(susfs_set_init_sid);
-EXPORT_SYMBOL(susfs_get_current_sid);
-EXPORT_SYMBOL(susfs_get_sid_from_name);
-#endif
-EOF
-    fi
+# If everything exists, nothing to do
+if [ "$VARS_EXIST" = true ] && [ "$FUNCS_EXIST" = true ] && [ "$EXPORTS_EXIST" = true ]; then
+    echo "SUSFS fully configured in selinux.c - nothing to add"
     exit 0
 fi
 
-echo "SUSFS functions not found - adding manually..."
-
-# Add SUSFS variable declarations after KERNEL_SU_DOMAIN
-sed -i '/#define KERNEL_SU_DOMAIN/a \
+# Add variables if missing
+if [ "$VARS_EXIST" = false ]; then
+    echo "Adding SUSFS variable declarations..."
+    sed -i '/#define KERNEL_SU_DOMAIN/a \
 \
 #ifdef CONFIG_KSU_SUSFS\
 #define KERNEL_INIT_DOMAIN "u:r:init:s0"\
@@ -47,9 +50,12 @@ u32 susfs_ksu_sid = 0;\
 u32 susfs_init_sid = 0;\
 u32 susfs_zygote_sid = 0;\
 #endif' "$SELINUX_C"
+fi
 
-# Add SUSFS functions at the end of the file
-cat >> "$SELINUX_C" << 'EOF'
+# Add functions if missing
+if [ "$FUNCS_EXIST" = false ]; then
+    echo "Adding SUSFS functions..."
+    cat >> "$SELINUX_C" << 'EOF'
 
 #ifdef CONFIG_KSU_SUSFS
 static inline void susfs_set_sid(const char *secctx_name, u32 *out_sid)
@@ -112,7 +118,29 @@ EXPORT_SYMBOL(susfs_get_current_sid);
 EXPORT_SYMBOL(susfs_get_sid_from_name);
 #endif
 EOF
+    echo "Added SUSFS functions"
+fi
 
-echo "Added SUSFS functions to selinux.c"
+# Add EXPORT_SYMBOL if functions exist but exports don't
+if [ "$FUNCS_EXIST" = true ] && [ "$EXPORTS_EXIST" = false ]; then
+    echo "Adding EXPORT_SYMBOL declarations to existing functions..."
+    cat >> "$SELINUX_C" << 'EOF'
+
+/* SUSFS symbol exports for fs/susfs.c */
+#ifdef CONFIG_KSU_SUSFS
+EXPORT_SYMBOL(susfs_is_current_ksu_domain);
+EXPORT_SYMBOL(susfs_is_current_zygote_domain);
+EXPORT_SYMBOL(susfs_is_current_init_domain);
+EXPORT_SYMBOL(susfs_is_sid_equal);
+EXPORT_SYMBOL(susfs_set_ksu_sid);
+EXPORT_SYMBOL(susfs_set_zygote_sid);
+EXPORT_SYMBOL(susfs_set_init_sid);
+EXPORT_SYMBOL(susfs_get_current_sid);
+EXPORT_SYMBOL(susfs_get_sid_from_name);
+#endif
+EOF
+    echo "Added EXPORT_SYMBOL declarations"
+fi
+
 echo "=== selinux.c tail ==="
 tail -25 "$SELINUX_C"
