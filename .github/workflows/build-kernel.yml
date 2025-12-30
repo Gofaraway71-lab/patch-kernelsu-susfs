@@ -127,18 +127,31 @@ jobs:
           # The kernel source has pre-embedded KernelSU hooks that are incompatible
           # with the KernelSU versions we install. Remove them first.
           echo "Checking for pre-embedded KernelSU hooks in fs/exec.c..."
-          if grep -q "ksu_execveat_hook\|ksu_handle_execveat" fs/exec.c; then
+          if grep -E "ksu_execveat_hook|ksu_handle_execveat" fs/exec.c; then
             echo "Found pre-embedded KernelSU hooks, removing them..."
             # Backup original file
             cp fs/exec.c fs/exec.c.bak
-            # Remove the KernelSU hook block (lines containing ksu_ calls)
-            sed -i '/ksu_execveat_hook\|ksu_handle_execveat/d' fs/exec.c
-            # Show diff
+            # Remove the KernelSU hook lines - use extended regex (-E) for portability
+            sed -i -E '/ksu_execveat_hook/d' fs/exec.c
+            sed -i -E '/ksu_handle_execveat/d' fs/exec.c
+            sed -i -E '/ksu_handle_execveat_sucompat/d' fs/exec.c
+            # Also remove any orphaned closing braces or related if blocks
+            # Show what was removed
+            echo "=== Diff of changes ==="
             diff fs/exec.c.bak fs/exec.c || true
             echo "Pre-embedded hooks removed"
           else
             echo "No pre-embedded KernelSU hooks found"
           fi
+
+          # Also check for pre-embedded hooks in other files
+          for f in fs/open.c fs/read_write.c fs/stat.c fs/namespace.c; do
+            if [ -f "$f" ] && grep -qE "ksu_|kernelsu" "$f"; then
+              echo "Found pre-embedded hooks in $f, removing..."
+              sed -i -E '/ksu_/d' "$f"
+              sed -i -E '/kernelsu/d' "$f"
+            fi
+          done
 
       - name: Setup KernelSU
         run: |
@@ -319,8 +332,27 @@ jobs:
           # Enable KernelSU
           scripts/config --file out/.config -e KSU
 
-          # Disable broken wireless charging driver (has incomplete struct definitions)
+          # Disable broken OPLUS charging drivers (have incomplete struct definitions)
+          # These drivers have missing header definitions that cause build failures
           scripts/config --file out/.config -d OPLUS_CHG_V1 || true
+          scripts/config --file out/.config -d OPLUS_CHG_WPC || true
+          scripts/config --file out/.config -d OPLUS_CHG_OP_WLCHG || true
+          scripts/config --file out/.config -d CONFIG_OPLUS_CHG_V1 || true
+
+          # Force disable by directly editing the config
+          sed -i 's/CONFIG_OPLUS_CHG_V1=y/# CONFIG_OPLUS_CHG_V1 is not set/' out/.config || true
+          sed -i 's/CONFIG_OPLUS_CHG_V1=m/# CONFIG_OPLUS_CHG_V1 is not set/' out/.config || true
+
+          # Also disable at Makefile level as failsafe - prevent oplus_wlchg_policy.c from being compiled
+          if [ -f "drivers/power/oplus/v1/Makefile" ]; then
+            echo "Disabling broken OPLUS V1 wireless charging driver at Makefile level..."
+            sed -i 's/oplus_wlchg_policy.o//' drivers/power/oplus/v1/Makefile
+            sed -i '/oplus_wlchg_policy/d' drivers/power/oplus/v1/Makefile
+          fi
+
+          # Verify config
+          echo "=== Checking OPLUS_CHG config status ==="
+          grep -i "OPLUS_CHG" out/.config || echo "No OPLUS_CHG config found"
 
           # Enable SUSFS if enabled
           if [ "$SUSFS_ENABLED" = "true" ]; then
