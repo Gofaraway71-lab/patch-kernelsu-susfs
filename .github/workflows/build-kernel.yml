@@ -147,8 +147,8 @@ jobs:
       - name: Fix KernelSU VFS Hooks
         run: |
           cd kernel
-          # KernelSU setup.sh adds VFS hooks to fs/exec.c but may not properly set up includes
-          # This step ensures the KernelSU header is available and included
+          # KernelSU setup.sh may add VFS hooks without proper extern declarations
+          # This step ensures the proper declarations are in place
 
           echo "=== Checking KernelSU setup ==="
 
@@ -156,58 +156,38 @@ jobs:
           KSU_DIR=$(find . -maxdepth 1 -type d -name "KernelSU*" | head -1)
           echo "KernelSU directory: $KSU_DIR"
 
-          # List KernelSU contents
-          if [ -n "$KSU_DIR" ]; then
-            echo "=== KernelSU directory contents ==="
-            ls -la "$KSU_DIR"
-            ls -la "$KSU_DIR/kernel/" 2>/dev/null || true
-          fi
-
-          # Check for ksu.h in various locations
-          echo "=== Looking for ksu.h ==="
-          find . -name "ksu.h" -type f 2>/dev/null
-
-          # Ensure ksu.h is in include/linux/
-          if [ ! -f "include/linux/ksu.h" ]; then
-            echo "ksu.h not found in include/linux/, creating symlink..."
-            if [ -f "$KSU_DIR/kernel/ksu.h" ]; then
-              ln -sf "$(pwd)/$KSU_DIR/kernel/ksu.h" include/linux/ksu.h
-              echo "Symlinked $KSU_DIR/kernel/ksu.h -> include/linux/ksu.h"
-            elif [ -f "drivers/kernelsu/ksu.h" ]; then
-              ln -sf "$(pwd)/drivers/kernelsu/ksu.h" include/linux/ksu.h
-              echo "Symlinked drivers/kernelsu/ksu.h -> include/linux/ksu.h"
-            fi
-          fi
-
           # Check fs/exec.c for KernelSU hooks
           echo "=== Checking fs/exec.c for KernelSU hooks ==="
           if grep -qE "ksu_execveat_hook|ksu_handle_execveat" fs/exec.c; then
             echo "Found KernelSU hooks in fs/exec.c"
-
-            # Show the hook-related lines
             grep -n "ksu_" fs/exec.c | head -20
 
-            # Check if KernelSU include is already present
-            if ! grep -q "#include.*ksu.h" fs/exec.c; then
-              echo "Adding KernelSU include to fs/exec.c..."
-              # Add include after linux/fs.h
-              sed -i '/#include <linux\/fs.h>/a #include <linux/ksu.h>' fs/exec.c
+            # Check if proper extern declarations exist
+            if ! grep -q "extern bool ksu_execveat_hook" fs/exec.c; then
+              echo "Missing extern declarations - KernelSU setup.sh added incomplete hooks"
+              echo "Removing incomplete hooks and will apply proper patches later..."
+
+              # Remove the incomplete hook code
+              cp fs/exec.c fs/exec.c.bak
+              sed -i '/ksu_execveat_hook/d' fs/exec.c
+              sed -i '/ksu_handle_execveat/d' fs/exec.c
+              echo "Incomplete hooks removed - vfs_hook_patches.sh will add proper hooks"
             else
-              echo "KernelSU include already present"
+              echo "Proper extern declarations found"
             fi
-
-            # Verify the include was added
-            echo "=== fs/exec.c includes ==="
-            grep "#include" fs/exec.c | head -30
           else
-            echo "No KernelSU hooks found in fs/exec.c"
+            echo "No KernelSU hooks found in fs/exec.c - vfs_hook_patches.sh will add them"
           fi
 
-          # Check if ksu.h exists and what it declares
-          if [ -f "include/linux/ksu.h" ]; then
-            echo "=== include/linux/ksu.h contents ==="
-            cat include/linux/ksu.h | head -50
-          fi
+          # Also check and fix other VFS files if KernelSU modified them improperly
+          for f in fs/open.c fs/read_write.c fs/stat.c; do
+            if [ -f "$f" ] && grep -qE "ksu_handle_" "$f"; then
+              if ! grep -q "extern.*ksu_" "$f"; then
+                echo "Removing incomplete hooks from $f..."
+                sed -i '/ksu_handle_/d' "$f"
+              fi
+            fi
+          done
 
       - name: Fix KernelSU for Kernel 4.19 Compatibility
         run: |
