@@ -26,7 +26,7 @@ on:
 env:
   # Official LineageOS kernel source
   KERNEL_SOURCE: https://github.com/LineageOS/android_kernel_oneplus_sm8250.git
-  KERNEL_BRANCH: lineage-22.2
+  KERNEL_BRANCH: lineage-23.0
   DEFCONFIG: vendor/kona-perf_defconfig
   DEVICE_NAME: ${{ github.event.inputs.device_name || 'OnePlus8_Series' }}
   # Default to KernelSU-Next legacy branch for better kernel 4.19 compatibility
@@ -90,6 +90,36 @@ jobs:
       - name: Clone Kernel Source
         run: |
           git clone --depth=1 -b $KERNEL_BRANCH $KERNEL_SOURCE kernel
+
+      - name: Fix LineageOS 23 Kernel Bugs
+        run: |
+          cd kernel
+
+          # Fix qpnp-power-on.c bug - missing log_kpd_event member in struct qpnp_pon
+          # Add the missing member to the struct definition
+          QPNP_HEADER="include/linux/input/qpnp-power-on.h"
+          if [ -f "$QPNP_HEADER" ]; then
+            echo "Fixing qpnp-power-on.h - adding missing log_kpd_event member..."
+            # Add log_kpd_event bool to struct qpnp_pon if not present
+            if ! grep -q "log_kpd_event" "$QPNP_HEADER"; then
+              sed -i '/struct qpnp_pon {/,/};/{
+                /bool.*kpdpwr_dbc_enable/a\	bool log_kpd_event;
+              }' "$QPNP_HEADER" || true
+            fi
+          fi
+
+          # Alternative fix: check driver file directly
+          QPNP_DRIVER="drivers/input/misc/qpnp-power-on.c"
+          if [ -f "$QPNP_DRIVER" ] && grep -q "pon->log_kpd_event" "$QPNP_DRIVER"; then
+            echo "Checking if log_kpd_event needs to be added to local struct..."
+            # Find the struct qpnp_pon in the driver and add the member if missing
+            if ! grep -q "bool log_kpd_event" "$QPNP_DRIVER"; then
+              # Comment out the log_kpd_event usage as a workaround
+              sed -i 's/if (pon->log_kpd_event/if (0 \&\& pon->log_kpd_event/g' "$QPNP_DRIVER"
+              sed -i 's/pon->log_kpd_event = of_property_read_bool/\/\/ pon->log_kpd_event = of_property_read_bool/g' "$QPNP_DRIVER"
+              echo "Disabled log_kpd_event references as workaround"
+            fi
+          fi
 
       - name: Fix vDSO Compilation for Clang
         run: |
