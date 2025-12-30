@@ -229,21 +229,21 @@ jobs:
 
           # SUSFS requires specific KernelSU integration patches
           # KernelSU-Next is not compatible with standard SUSFS patches
-          # For SUSFS support, we need to use rsuntk's KernelSU or original KernelSU
-          if [ "$KERNELSU_VARIANT" = "next" ]; then
-            echo "WARNING: KernelSU-Next is not compatible with standard SUSFS patches"
-            echo "Switching to rsuntk KernelSU for SUSFS compatibility..."
+          # For SUSFS support, we need to use original tiann KernelSU
+          if [ "$KERNELSU_VARIANT" = "next" ] || [ "$KERNELSU_VARIANT" = "rsuntk" ]; then
+            echo "WARNING: $KERNELSU_VARIANT is not fully compatible with SUSFS patches"
+            echo "Switching to original tiann KernelSU for SUSFS compatibility..."
 
-            # Remove KernelSU-Next
+            # Remove existing KernelSU
             rm -rf KernelSU*
             rm -rf drivers/kernelsu
 
-            # Install rsuntk KernelSU instead (compatible with SUSFS)
-            curl -LSs "https://raw.githubusercontent.com/rsuntk/KernelSU/main/kernel/setup.sh" | bash -s main
+            # Install original tiann KernelSU (compatible with SUSFS)
+            curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
 
             # Update the variant for naming
-            export KERNELSU_VARIANT="rsuntk"
-            echo "KERNELSU_VARIANT=rsuntk" >> $GITHUB_ENV
+            export KERNELSU_VARIANT="ksu"
+            echo "KERNELSU_VARIANT=ksu" >> $GITHUB_ENV
           fi
 
           # Find KernelSU directory
@@ -308,16 +308,15 @@ jobs:
         run: |
           cd kernel
 
-          # Check the actual KernelSU variant (may have been switched for SUSFS compatibility)
-          ACTUAL_VARIANT="$KERNELSU_VARIANT"
-
           # KernelSU-Next uses LSM hooks instead of manual VFS patches
-          # Only apply VFS patches for non-Next variants (ksu, sukisu, rsuntk)
-          # Note: If SUSFS was enabled with 'next', we already switched to rsuntk
-          if [ "$ACTUAL_VARIANT" = "next" ] && [ "$SUSFS_ENABLED" != "true" ]; then
+          # SUSFS patches include their own hooks via 50_add_susfs_in_kernel-4.19.patch
+          # The vfs_hook_patches.sh script is buggy and conflicts with SUSFS hooks
+          if [ "$KERNELSU_VARIANT" = "next" ]; then
             echo "Skipping VFS hook patches - KernelSU-Next uses LSM hooks"
+          elif [ "$SUSFS_ENABLED" = "true" ]; then
+            echo "Skipping VFS hook patches - SUSFS patches include their own kernel hooks"
           else
-            echo "Applying VFS hook patches for $ACTUAL_VARIANT..."
+            echo "Applying VFS hook patches for $KERNELSU_VARIANT..."
             if [ -f "../patches/vfs_hook_patches.sh" ]; then
               bash ../patches/vfs_hook_patches.sh || echo "VFS patches may already be applied"
             fi
