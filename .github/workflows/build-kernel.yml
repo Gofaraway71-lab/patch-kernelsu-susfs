@@ -170,6 +170,21 @@ jobs:
           echo "Created compatibility header: $COMPAT_HEADER"
           cat "$COMPAT_HEADER"
 
+          # Create linux/pgtable.h compatibility header (header moved from asm/ to linux/ in 5.8)
+          PGTABLE_HEADER="include/linux/pgtable.h"
+          if [ ! -f "$PGTABLE_HEADER" ]; then
+            echo "Creating pgtable.h compatibility header..."
+            printf '/* Compatibility header for kernel 4.19 */\n' > "$PGTABLE_HEADER"
+            printf '/* linux/pgtable.h was introduced in kernel 5.8 */\n' >> "$PGTABLE_HEADER"
+            printf '/* In earlier kernels, use asm/pgtable.h instead */\n' >> "$PGTABLE_HEADER"
+            printf '#ifndef _LINUX_PGTABLE_H\n' >> "$PGTABLE_HEADER"
+            printf '#define _LINUX_PGTABLE_H\n' >> "$PGTABLE_HEADER"
+            printf '#include <asm/pgtable.h>\n' >> "$PGTABLE_HEADER"
+            printf '#endif\n' >> "$PGTABLE_HEADER"
+            echo "Created $PGTABLE_HEADER"
+            cat "$PGTABLE_HEADER"
+          fi
+
           # Add compat header to all KernelSU source files that need kernel 4.19 fixes
           if [ -n "$KSU_DIR" ] && [ -d "$KSU_DIR" ]; then
             echo "Adding compatibility header to KernelSU source files..."
