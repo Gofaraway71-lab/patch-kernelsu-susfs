@@ -4,15 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       kernelsu_variant:
-        description: 'KernelSU variant (rsuntk recommended for kernel 4.19)'
+        description: 'KernelSU variant (next legacy recommended for kernel 4.19)'
         required: true
-        default: 'rsuntk'
+        default: 'next'
         type: choice
         options:
+          - next
           - rsuntk
           - ksu
           - sukisu
-          - next
       susfs_enabled:
         description: 'Enable SUSFS'
         required: true
@@ -29,8 +29,8 @@ env:
   KERNEL_BRANCH: staging
   DEFCONFIG: vendor/kona-perf_defconfig
   DEVICE_NAME: ${{ github.event.inputs.device_name || 'OnePlus8_Series' }}
-  # Default to rsuntk variant for better kernel 4.19 compatibility
-  KERNELSU_VARIANT: ${{ github.event.inputs.kernelsu_variant || 'rsuntk' }}
+  # Default to KernelSU-Next legacy branch for better kernel 4.19 compatibility
+  KERNELSU_VARIANT: ${{ github.event.inputs.kernelsu_variant || 'next' }}
   SUSFS_ENABLED: ${{ github.event.inputs.susfs_enabled || 'true' }}
   # Patches repo
   PATCHES_REPO: JackA1ltman/NonGKI_Kernel_Patches
