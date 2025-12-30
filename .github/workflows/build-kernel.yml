@@ -121,6 +121,25 @@ jobs:
         run: |
           git clone --depth=1 -b $PATCHES_BRANCH https://github.com/$PATCHES_REPO.git patches
 
+      - name: Remove Pre-embedded KernelSU Hooks
+        run: |
+          cd kernel
+          # The kernel source has pre-embedded KernelSU hooks that are incompatible
+          # with the KernelSU versions we install. Remove them first.
+          echo "Checking for pre-embedded KernelSU hooks in fs/exec.c..."
+          if grep -q "ksu_execveat_hook\|ksu_handle_execveat" fs/exec.c; then
+            echo "Found pre-embedded KernelSU hooks, removing them..."
+            # Backup original file
+            cp fs/exec.c fs/exec.c.bak
+            # Remove the KernelSU hook block (lines containing ksu_ calls)
+            sed -i '/ksu_execveat_hook\|ksu_handle_execveat/d' fs/exec.c
+            # Show diff
+            diff fs/exec.c.bak fs/exec.c || true
+            echo "Pre-embedded hooks removed"
+          else
+            echo "No pre-embedded KernelSU hooks found"
+          fi
+
       - name: Setup KernelSU
         run: |
           cd kernel
