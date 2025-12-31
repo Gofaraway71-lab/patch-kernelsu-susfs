@@ -125,8 +125,9 @@ jobs:
       - name: Setup KernelSU (rsuntk non-GKI fork)
         run: |
           cd kernel
-          # Use rsuntk's KernelSU fork which maintains non-GKI support
-          curl -LSs "https://raw.githubusercontent.com/rsuntk/KernelSU/main/kernel/setup.sh" | bash -
+          # Use rsuntk's KernelSU fork v0.9.5 which properly supports kernel 4.19
+          # Newer versions have fsnotify API incompatibilities with 4.19
+          curl -LSs "https://raw.githubusercontent.com/rsuntk/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
 
       - name: Use Device Config
         run: |
