@@ -88,22 +88,25 @@ jobs:
           sed -i '/^extern void mnt_set_expiry/i extern int path_umount(struct path *path, int flags);' include/linux/mount.h
 
           # Backport get_cred_rcu for kernels that don't have it
-          # Add to include/linux/cred.h
-          cat >> include/linux/cred.h << 'EOFCRED'
-
-          /* Backport get_cred_rcu for KernelSU */
-          #ifndef get_cred_rcu
-          static inline const struct cred *get_cred_rcu(const struct cred *cred)
-          {
-              struct cred *nonconst_cred = (struct cred *) cred;
-              if (!cred)
-                  return NULL;
-              if (!atomic_inc_not_zero(&nonconst_cred->usage))
-                  return NULL;
-              return cred;
+          # First check if it already exists in the kernel
+          if ! grep -q "get_cred_rcu" include/linux/cred.h; then
+            echo "Adding get_cred_rcu backport..."
+            # Insert BEFORE the final #endif of the include guard
+            sed -i '/#endif.*_LINUX_CRED_H/i \
+          /* Backport get_cred_rcu for KernelSU */ \
+          static inline const struct cred *get_cred_rcu(const struct cred *cred) \
+          { \
+              struct cred *nonconst_cred = (struct cred *) cred; \
+              if (!cred) \
+                  return NULL; \
+              if (!atomic_inc_not_zero(\&nonconst_cred->usage)) \
+                  return NULL; \
+              return cred; \
           }
-          #endif
-          EOFCRED
+          ' include/linux/cred.h
+          else
+            echo "get_cred_rcu already exists in kernel, skipping backport"
+          fi
 
       - name: Setup KernelSU (mlm-games non-GKI fork)
         run: |
