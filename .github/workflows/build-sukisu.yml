@@ -46,6 +46,18 @@ jobs:
         run: |
           git clone --depth=1 -b $KERNEL_BRANCH $KERNEL_SOURCE kernel
 
+      - name: Fix LineageOS 23 Bugs
+        run: |
+          cd kernel
+
+          # Fix qpnp-power-on.c - comment out log_kpd_event references (struct member missing in LOS23)
+          sed -i 's/if (pon->log_kpd_event && (cfg->pon_type == PON_KPDPWR))/if (0)/' drivers/input/misc/qpnp-power-on.c
+          sed -i 's/if (pon->log_kpd_event) {/if (0) {/' drivers/input/misc/qpnp-power-on.c
+          sed -i 's/pon->log_kpd_event = of_property_read_bool.*$/\/\/ log_kpd_event removed in LOS23/' drivers/input/misc/qpnp-power-on.c
+
+          # Fix oplus_nwpower.c - stub out get_cached_platform_id
+          sed -i '1i #define get_cached_platform_id() 0' net/oplus_nwpower/oplus_nwpower.c
+
       - name: Setup SukiSU-Ultra
         run: |
           cd kernel
