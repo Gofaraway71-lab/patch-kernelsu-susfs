@@ -84,68 +84,97 @@ jobs:
           cd kernel
           echo "Applying SukiSU manual hooks for non-GKI kernel..."
 
-          # Check if integrate script exists
-          if [ -f "KernelSU/scripts/integrate-no-kprobe.py" ]; then
-            python3 KernelSU/scripts/integrate-no-kprobe.py arch/arm64/configs/vendor/kona-perf_defconfig
-          else
-            echo "Applying manual hooks directly..."
+          # For 4.19 kernels, kprobe doesn't work reliably
+          # We need to add manual hooks to kernel source files
 
-            # Manual hook in fs/exec.c - add to do_execveat_common
-            sed -i '/^static int do_execveat_common/,/^{/ {
+          # 1. Hook in fs/exec.c - execveat hook for su command detection
+          # Add declarations at top of file
+          sed -i '1i\
+          #ifdef CONFIG_KSU\
+          extern bool ksu_execveat_hook __read_mostly;\
+          extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);\
+          extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);\
+          #endif' fs/exec.c
+
+          # Find the exec function and add hook call
+          if grep -q "static int do_execveat_common" fs/exec.c; then
+            echo "Found do_execveat_common, adding hook..."
+            sed -i '/^static int do_execveat_common/,/^{/{
               /^{/a\
               #ifdef CONFIG_KSU\
-              extern bool ksu_execveat_hook __read_mostly;\
-              extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);\
-              extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);\
-              if (unlikely(ksu_execveat_hook))\
-                  ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);\
-              else\
-                  ksu_handle_execveat_sucompat(&fd, &filename, &argv, &envp, &flags);\
+              if (unlikely(ksu_execveat_hook)) ksu_handle_execveat(\&fd, \&filename, \&argv, \&envp, \&flags);\
+              else ksu_handle_execveat_sucompat(\&fd, \&filename, \&argv, \&envp, \&flags);\
               #endif
-            }' fs/exec.c || echo "Could not patch fs/exec.c automatically"
-
-            # Manual hook in fs/open.c - add to do_faccessat
-            sed -i '/^static long do_faccessat/,/^{/ {
-              /^{/a\
-              #ifdef CONFIG_KSU\
-              extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);\
-              ksu_handle_faccessat(&dfd, &filename, &mode, NULL);\
-              #endif
-            }' fs/open.c || echo "Could not patch fs/open.c automatically"
-
-            # Manual hook in fs/read_write.c - add to vfs_read
-            sed -i '/^ssize_t vfs_read/,/^{/ {
-              /^{/a\
-              #ifdef CONFIG_KSU\
-              extern bool ksu_vfs_read_hook __read_mostly;\
-              extern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr, size_t *count_ptr, loff_t **pos);\
-              if (unlikely(ksu_vfs_read_hook))\
-                  ksu_handle_vfs_read(&file, &buf, &count, &pos);\
-              #endif
-            }' fs/read_write.c || echo "Could not patch fs/read_write.c automatically"
-
-            # Manual hook in fs/stat.c - add to vfs_statx or vfs_fstatat
-            sed -i '/^int vfs_statx/,/^{/ {
-              /^{/a\
-              #ifdef CONFIG_KSU\
-              extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);\
-              ksu_handle_stat(&dfd, &filename, &flags);\
-              #endif
-            }' fs/stat.c || echo "Could not patch fs/stat.c automatically"
-
-            # Manual hook in drivers/input/input.c - for Safe Mode
-            sed -i '/^static void input_handle_event/,/^{/ {
-              /^{/a\
-              #ifdef CONFIG_KSU\
-              extern bool ksu_input_hook __read_mostly;\
-              extern int ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);\
-              if (unlikely(ksu_input_hook))\
-                  ksu_handle_input_handle_event(&type, &code, &value);\
-              #endif
-            }' drivers/input/input.c || echo "Could not patch drivers/input/input.c automatically"
+            }' fs/exec.c
           fi
 
-          echo "Manual hooks applied"
+          # 2. Hook in fs/open.c - faccessat hook for hiding su binary
+          sed -i '1i\
+          #ifdef CONFIG_KSU\
+          extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);\
+          #endif' fs/open.c
+
+          if grep -q "static long do_faccessat" fs/open.c; then
+            echo "Found do_faccessat, adding hook..."
+            sed -i '/^static long do_faccessat/,/^{/{
+              /^{/a\
+              #ifdef CONFIG_KSU\
+              ksu_handle_faccessat(\&dfd, \&filename, \&mode, NULL);\
+              #endif
+            }' fs/open.c
+          fi
+
+          # 3. Hook in fs/read_write.c - vfs_read hook
+          sed -i '1i\
+          #ifdef CONFIG_KSU\
+          extern bool ksu_vfs_read_hook __read_mostly;\
+          extern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr, size_t *count_ptr, loff_t **pos);\
+          #endif' fs/read_write.c
+
+          if grep -q "^ssize_t vfs_read" fs/read_write.c; then
+            echo "Found vfs_read, adding hook..."
+            sed -i '/^ssize_t vfs_read/,/^{/{
+              /^{/a\
+              #ifdef CONFIG_KSU\
+              if (unlikely(ksu_vfs_read_hook)) ksu_handle_vfs_read(\&file, \&buf, \&count, \&pos);\
+              #endif
+            }' fs/read_write.c
+          fi
+
+          # 4. Hook in fs/stat.c - stat hook for hiding su
+          sed -i '1i\
+          #ifdef CONFIG_KSU\
+          extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);\
+          #endif' fs/stat.c
+
+          if grep -q "^int vfs_statx" fs/stat.c; then
+            echo "Found vfs_statx, adding hook..."
+            sed -i '/^int vfs_statx/,/^{/{
+              /^{/a\
+              #ifdef CONFIG_KSU\
+              ksu_handle_stat(\&dfd, \&filename, \&flags);\
+              #endif
+            }' fs/stat.c
+          fi
+
+          # 5. Hook in drivers/input/input.c - for Safe Mode detection
+          sed -i '1i\
+          #ifdef CONFIG_KSU\
+          extern bool ksu_input_hook __read_mostly;\
+          extern int ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);\
+          #endif' drivers/input/input.c
+
+          if grep -q "static void input_handle_event" drivers/input/input.c; then
+            echo "Found input_handle_event, adding hook..."
+            sed -i '/^static void input_handle_event/,/^{/{
+              /^{/a\
+              #ifdef CONFIG_KSU\
+              if (unlikely(ksu_input_hook)) ksu_handle_input_handle_event(\&type, \&code, \&value);\
+              #endif
+            }' drivers/input/input.c
+          fi
+
+          echo "Manual hooks applied to kernel source files"
 
       - name: Use Device Config
         run: |
