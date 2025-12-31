@@ -122,25 +122,11 @@ jobs:
           # Add to Makefile
           echo 'obj-y += oplus_stubs.o' >> drivers/soc/oplus/Makefile
 
-      - name: Setup KernelSU
+      - name: Setup KernelSU (rsuntk non-GKI fork)
         run: |
           cd kernel
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
-
-      - name: Fix KernelSU for OPLUS
-        run: |
-          cd kernel
-          # Add fallback for MODULE_IMPORT_NS macro (not available in kernel 4.19)
-          # and forward declaration for get_cached_platform_id
-          cat > /tmp/ksu_fix.h << 'EOFKSU'
-          #ifndef MODULE_IMPORT_NS
-          #define MODULE_IMPORT_NS(ns)
-          #endif
-          extern int get_cached_platform_id(void);
-          EOFKSU
-          sed -i 's/^          //' /tmp/ksu_fix.h
-          cat /tmp/ksu_fix.h drivers/kernelsu/ksu.c > /tmp/ksu.c.tmp
-          mv /tmp/ksu.c.tmp drivers/kernelsu/ksu.c
+          # Use rsuntk's KernelSU fork which maintains non-GKI support
+          curl -LSs "https://raw.githubusercontent.com/rsuntk/KernelSU/main/kernel/setup.sh" | bash -
 
       - name: Use Device Config
         run: |
