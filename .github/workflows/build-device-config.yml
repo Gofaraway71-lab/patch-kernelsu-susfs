@@ -67,6 +67,26 @@ jobs:
           # NOTE: Device config enables actual OPLUS drivers, so we don't need stubs
           # (Stubs are only needed for defconfig builds which lack OPLUS drivers)
 
+      - name: Backport path_umount (required for kernel < 5.9)
+        run: |
+          cd kernel
+          # path_umount was added in Linux 5.9, need to backport for 4.19
+          # Add the function to fs/namespace.c
+          cat >> fs/namespace.c << 'EOFPATCH'
+
+          /* Backport path_umount from Linux 5.9+ for KernelSU */
+          #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 9, 0)
+          int path_umount(struct path *path, int flags)
+          {
+              return do_umount(path->mnt, flags);
+          }
+          EXPORT_SYMBOL(path_umount);
+          #endif
+          EOFPATCH
+
+          # Add declaration to include/linux/mount.h
+          sed -i '/^extern void mnt_set_expiry/i extern int path_umount(struct path *path, int flags);' include/linux/mount.h
+
       - name: Setup KernelSU (mlm-games non-GKI fork)
         run: |
           cd kernel
@@ -85,6 +105,9 @@ jobs:
 
           # Add to Kconfig (before endmenu)
           sed -i '/^endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+
+          # Tell KernelSU that path_umount is available (we backported it)
+          echo "ccflags-y += -DKSU_UMOUNT" >> drivers/kernelsu/Makefile
 
       - name: Use Device Config
         run: |
