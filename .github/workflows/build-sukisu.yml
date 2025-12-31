@@ -62,8 +62,8 @@ jobs:
             sed -i '1i #ifndef get_cached_platform_id\n#define get_cached_platform_id() 0\n#endif' "$f"
           done
 
-          # Fix schgm-flash.h - add forward declaration for smb_charger struct
-          sed -i '/^#define _SCHGM_FLASH_H_$/a struct smb_charger;' drivers/power/supply/qcom/schgm-flash.h || true
+          # Fix schgm-flash.h - add forward declaration for smb_charger struct at beginning
+          sed -i '1i struct smb_charger;' drivers/power/supply/qcom/schgm-flash.h || true
           # Add smb5-lib.h include to schgm-flash.c
           sed -i '/#include "schgm-flash.h"/a #include "smb5-lib.h"' drivers/power/supply/qcom/schgm-flash.c || true
 
