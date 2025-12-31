@@ -57,8 +57,10 @@ jobs:
           # Remove multi-line log_kpd_event assignment (spans 2 lines)
           sed -i '/pon->log_kpd_event = of_property_read_bool/,/"qcom,log-kpd-event");/d' drivers/input/misc/qpnp-power-on.c
 
-          # Fix oplus_nwpower.c - stub out get_cached_platform_id
-          sed -i '1i #define get_cached_platform_id() 0' net/oplus_nwpower/oplus_nwpower.c
+          # Fix get_cached_platform_id missing function - add stub to all files that use it
+          for f in $(grep -rl "get_cached_platform_id" --include="*.c" .); do
+            sed -i '1i #ifndef get_cached_platform_id\n#define get_cached_platform_id() 0\n#endif' "$f"
+          done
 
       - name: Setup KernelSU
         run: |
