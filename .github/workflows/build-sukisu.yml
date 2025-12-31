@@ -64,6 +64,20 @@ jobs:
           # Apply kernel patch
           patch -p1 < susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch || true
 
+      - name: Fix LineageOS 23 Compatibility
+        run: |
+          cd kernel
+
+          # Fix qpnp-power-on.c log_kpd_event issue (LineageOS 23 specific)
+          sed -i 's/if (pon->log_kpd_event &&/if (0 \&\&/g' drivers/input/misc/qpnp-power-on.c
+          sed -i 's/if (pon->log_kpd_event)/if (0)/g' drivers/input/misc/qpnp-power-on.c
+          sed -i '/pon->log_kpd_event = of_property_read_bool/d' drivers/input/misc/qpnp-power-on.c
+
+          # Add susfs_def.h include to files that use INODE_STATE_SUS_KSTAT
+          if ! grep -q "linux/susfs_def.h" fs/proc/task_mmu.c; then
+            sed -i '/#include <linux\/mm.h>/a #include <linux/susfs_def.h>' fs/proc/task_mmu.c
+          fi
+
       - name: Build Kernel
         run: |
           cd kernel
