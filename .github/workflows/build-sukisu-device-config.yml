@@ -136,6 +136,7 @@ jobs:
           gzip -9 ramdisk.cpio
 
           # Create boot.img with OnePlus 8 Pro parameters
+          # Use header version 0 to avoid DTB requirement
           python3 $GITHUB_WORKSPACE/mkbootimg/mkbootimg.py \
             --kernel ../out/arch/arm64/boot/Image \
             --ramdisk ramdisk.cpio.gz \
@@ -144,9 +145,6 @@ jobs:
             --kernel_offset 0x00008000 \
             --ramdisk_offset 0x01000000 \
             --tags_offset 0x00000100 \
-            --os_version 14.0.0 \
-            --os_patch_level 2024-12 \
-            --header_version 2 \
             --cmdline "androidboot.hardware=qcom androidboot.console=ttyMSM0 androidboot.memcg=1 lpm_levels.sleep_disabled=1 msm_rtb.filter=0x237 service_locator.enable=1 androidboot.usbcontroller=a600000.dwc3 swiotlb=2048 loop.max_part=7 cgroup.memory=nokmem,nosocket reboot=panic_warm" \
             --output "$GITHUB_WORKSPACE/$BOOT_IMG"
 
