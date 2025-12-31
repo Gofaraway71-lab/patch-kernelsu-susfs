@@ -146,98 +146,21 @@ jobs:
           echo "Applying KernelSU manual hooks for non-GKI kernel..."
 
           # For mlm-games fork on 4.19 kernels, kprobe doesn't work reliably
-          # We need to add manual hooks to kernel source files
+          # The mlm-games fork should handle hooks internally via kprobes
+          # For manual hooks, we need to use the integrate script or skip manual hooks
+          # and rely on kprobe (which may or may not work on 4.19)
 
-          # 1. Hook in fs/exec.c - execveat hook for su command detection
-          # Add declarations after includes (not at line 1 where types aren't defined)
-          sed -i '/#include <linux\/fs.h>/a\
-          #ifdef CONFIG_KSU\
-          extern bool ksu_execveat_hook __read_mostly;\
-          extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);\
-          extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);\
-          #endif' fs/exec.c
-
-          # Find the exec function and add hook call
-          # Look for do_execveat_common or __do_execve_file
-          if grep -q "static int do_execveat_common" fs/exec.c; then
-            echo "Found do_execveat_common, adding hook..."
-            sed -i '/^static int do_execveat_common/,/^{/{
-              /^{/a\
-              #ifdef CONFIG_KSU\
-              if (unlikely(ksu_execveat_hook)) ksu_handle_execveat(\&fd, \&filename, \&argv, \&envp, \&flags);\
-              else ksu_handle_execveat_sucompat(\&fd, \&filename, \&argv, \&envp, \&flags);\
-              #endif
-            }' fs/exec.c
+          # Check if the mlm-games fork has its own hook mechanism
+          if [ -f "KernelSU/kernel/core_hook.c" ]; then
+            echo "KernelSU core_hook.c found - using built-in kprobe hooks"
+            echo "Note: kprobe may not work reliably on 4.19 kernels"
           fi
 
-          # 2. Hook in fs/open.c - faccessat hook for hiding su binary
-          sed -i '/#include <linux\/fs.h>/a\
-          #ifdef CONFIG_KSU\
-          extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);\
-          #endif' fs/open.c
-
-          if grep -q "static long do_faccessat" fs/open.c; then
-            echo "Found do_faccessat, adding hook..."
-            sed -i '/^static long do_faccessat/,/^{/{
-              /^{/a\
-              #ifdef CONFIG_KSU\
-              ksu_handle_faccessat(\&dfd, \&filename, \&mode, NULL);\
-              #endif
-            }' fs/open.c
-          fi
-
-          # 3. Hook in fs/read_write.c - vfs_read hook
-          sed -i '/#include <linux\/fs.h>/a\
-          #ifdef CONFIG_KSU\
-          extern bool ksu_vfs_read_hook __read_mostly;\
-          extern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr, size_t *count_ptr, loff_t **pos);\
-          #endif' fs/read_write.c
-
-          if grep -q "^ssize_t vfs_read" fs/read_write.c; then
-            echo "Found vfs_read, adding hook..."
-            sed -i '/^ssize_t vfs_read/,/^{/{
-              /^{/a\
-              #ifdef CONFIG_KSU\
-              if (unlikely(ksu_vfs_read_hook)) ksu_handle_vfs_read(\&file, \&buf, \&count, \&pos);\
-              #endif
-            }' fs/read_write.c
-          fi
-
-          # 4. Hook in fs/stat.c - stat hook for hiding su
-          sed -i '/#include <linux\/fs.h>/a\
-          #ifdef CONFIG_KSU\
-          extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);\
-          #endif' fs/stat.c
-
-          if grep -q "^int vfs_statx" fs/stat.c; then
-            echo "Found vfs_statx, adding hook..."
-            sed -i '/^int vfs_statx/,/^{/{
-              /^{/a\
-              #ifdef CONFIG_KSU\
-              ksu_handle_stat(\&dfd, \&filename, \&flags);\
-              #endif
-            }' fs/stat.c
-          fi
-
-          # 5. Hook in drivers/input/input.c - for Safe Mode detection
-          # Need to add declaration after includes, not at line 1 (bool type not defined yet)
-          sed -i '/#include <linux\/input.h>/a\
-          #ifdef CONFIG_KSU\
-          extern bool ksu_input_hook __read_mostly;\
-          extern int ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);\
-          #endif' drivers/input/input.c
-
-          if grep -q "static void input_handle_event" drivers/input/input.c; then
-            echo "Found input_handle_event, adding hook..."
-            sed -i '/^static void input_handle_event/,/^{/{
-              /^{/a\
-              #ifdef CONFIG_KSU\
-              if (unlikely(ksu_input_hook)) ksu_handle_input_handle_event(\&type, \&code, \&value);\
-              #endif
-            }' drivers/input/input.c
-          fi
-
-          echo "Manual hooks applied to kernel source files"
+          # The mlm-games fork uses kprobe by default
+          # Manual hooks require extensive kernel source modification
+          # which is error-prone and kernel-version dependent
+          echo "Skipping manual hook patching - relying on kprobe mechanism"
+          echo "If root doesn't work, the kernel may need manual hook patches"
 
       - name: Use Device Config
         run: |
@@ -250,10 +173,10 @@ jobs:
         run: |
           cd kernel
           scripts/config --file out/.config -e KSU
-          # Enable manual hooks for non-GKI kernel (kprobe doesn't work reliably on 4.19)
-          scripts/config --file out/.config -e KSU_MANUAL_HOOK || true
-          # Disable kprobe hooks since we're using manual hooks
-          scripts/config --file out/.config -d KSU_KPROBE_HOOK || true
+          # Enable kprobes for hook mechanism
+          scripts/config --file out/.config -e KPROBES
+          scripts/config --file out/.config -e HAVE_KPROBES
+          scripts/config --file out/.config -e KPROBE_EVENTS
           # Enable kallsyms for proper symbol resolution
           scripts/config --file out/.config -e KALLSYMS
           scripts/config --file out/.config -e KALLSYMS_ALL
