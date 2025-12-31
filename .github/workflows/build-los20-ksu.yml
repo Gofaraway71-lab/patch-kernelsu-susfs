@@ -33,9 +33,10 @@ jobs:
           sudo apt-get update -y
           sudo apt install gcc-aarch64-linux-gnu -y
           sudo apt install gcc-arm-linux-gnueabi -y
-          sudo apt install make python3 libssl-dev build-essential bc bison flex unzip libssl-dev ca-certificates xz-utils mkbootimg cpio device-tree-compiler git p7zip-full -y
-          wget https://github.com/Mandi-Sa/clang-prebuilt_old/releases/download/20220113/amd64-kernel-arm-20220113.7z
-          7z x amd64-kernel-arm-20220113.7z -o./clang/
+          sudo apt install make python3 libssl-dev build-essential bc bison flex unzip libssl-dev ca-certificates xz-utils mkbootimg cpio device-tree-compiler git -y
+          # Use ZyCromerZ Clang 14
+          mkdir -p clang
+          curl -sL "https://github.com/ZyCromerZ/Clang/releases/download/14.0.6-20250704-release/Clang-14.0.6-20250704.tar.gz" | tar -xzf - -C clang
 
       - name: Clone Kernel
         run: |
@@ -51,8 +52,8 @@ jobs:
         run: |
           cd kernel
           export PATH=$(pwd)/../clang/bin/:$PATH
-          make $KERNEL_CMDLINE $KERNEL_DEFCONFIG CC="ccache clang"
-          make $KERNEL_CMDLINE CC="ccache clang" -j$(nproc --all)
+          make $KERNEL_CMDLINE $KERNEL_DEFCONFIG CC="clang"
+          make $KERNEL_CMDLINE CC="clang" -j$(nproc --all)
 
       - name: Package
         run: |
