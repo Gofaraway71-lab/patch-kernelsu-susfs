@@ -88,8 +88,8 @@ jobs:
           # We need to add manual hooks to kernel source files
 
           # 1. Hook in fs/exec.c - execveat hook for su command detection
-          # Add declarations at top of file
-          sed -i '1i\
+          # Add declarations after includes (not at line 1 where types aren't defined)
+          sed -i '/#include <linux\/fs.h>/a\
           #ifdef CONFIG_KSU\
           extern bool ksu_execveat_hook __read_mostly;\
           extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);\
@@ -109,7 +109,7 @@ jobs:
           fi
 
           # 2. Hook in fs/open.c - faccessat hook for hiding su binary
-          sed -i '1i\
+          sed -i '/#include <linux\/fs.h>/a\
           #ifdef CONFIG_KSU\
           extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);\
           #endif' fs/open.c
@@ -125,7 +125,7 @@ jobs:
           fi
 
           # 3. Hook in fs/read_write.c - vfs_read hook
-          sed -i '1i\
+          sed -i '/#include <linux\/fs.h>/a\
           #ifdef CONFIG_KSU\
           extern bool ksu_vfs_read_hook __read_mostly;\
           extern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr, size_t *count_ptr, loff_t **pos);\
@@ -142,7 +142,7 @@ jobs:
           fi
 
           # 4. Hook in fs/stat.c - stat hook for hiding su
-          sed -i '1i\
+          sed -i '/#include <linux\/fs.h>/a\
           #ifdef CONFIG_KSU\
           extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);\
           #endif' fs/stat.c
@@ -158,7 +158,8 @@ jobs:
           fi
 
           # 5. Hook in drivers/input/input.c - for Safe Mode detection
-          sed -i '1i\
+          # Need to add declaration after includes, not at line 1 (bool type not defined yet)
+          sed -i '/#include <linux\/input.h>/a\
           #ifdef CONFIG_KSU\
           extern bool ksu_input_hook __read_mostly;\
           extern int ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);\
