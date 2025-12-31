@@ -74,7 +74,7 @@ jobs:
           cat > drivers/soc/oplus/oplus_stubs.c << 'EOFSTUB'
           // Stubs for missing OnePlus functions
           #include <linux/module.h>
-          void hans_report(int, int, int, char*) {}
+          void hans_report(int a, int b, int c, char* d) {}
           EXPORT_SYMBOL(hans_report);
           int get_boot_mode(void) { return 0; }
           EXPORT_SYMBOL(get_boot_mode);
