@@ -127,6 +127,12 @@ jobs:
           cd kernel
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
 
+      - name: Fix KernelSU for OPLUS
+        run: |
+          cd kernel
+          # Add forward declaration for get_cached_platform_id in ksu.c to fix compilation
+          sed -i '1i extern int get_cached_platform_id(void);' drivers/kernelsu/ksu.c
+
       - name: Use Device Config
         run: |
           cd kernel
