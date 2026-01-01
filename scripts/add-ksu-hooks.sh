@@ -114,17 +114,9 @@ extern int ksu_handle_input_handle_event(unsigned int *type, unsigned int *code,
 fi
 
 # For input_handle_event, we need to insert AFTER variable declarations
-# The function signature and then find where statements begin
-cat > /tmp/input_call.txt << 'HOOKEOF'
-#ifdef CONFIG_KSU
-	if (unlikely(ksu_input_hook))
-		ksu_handle_input_handle_event(&type, &code, &value);
-#endif
-HOOKEOF
-
-# Use a more sophisticated approach: find the function and insert after the first statement line
-# Look for input_get_disposition which is the first actual code after variable decls
-sed -i '/input_get_disposition(dev, type, code, \&value)/i\
+# The line "int disposition = input_get_disposition(...)" is a declaration
+# So we insert AFTER this line, not before it
+sed -i '/int disposition = input_get_disposition(dev, type, code, \&value);/a\
 #ifdef CONFIG_KSU\
 	if (unlikely(ksu_input_hook))\
 		ksu_handle_input_handle_event(\&type, \&code, \&value);\
