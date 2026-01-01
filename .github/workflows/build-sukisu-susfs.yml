@@ -117,12 +117,9 @@ jobs:
           echo "Setting up SukiSU-Ultra with SUSFS support for non-GKI kernel..."
 
           # SukiSU-Ultra has built-in SUSFS support and non-GKI compatibility
-          # Try susfs-dev first, fallback to susfs if needed
-          echo "Trying to setup SukiSU-Ultra with susfs-dev branch..."
-          if ! curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-dev; then
-            echo "susfs-dev failed, trying susfs branch..."
-            curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs
-          fi
+          # Use the susfs branch which has SUSFS integrated
+          echo "Setting up SukiSU-Ultra with susfs branch..."
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs
 
           # Verify setup worked
           if [ ! -d "drivers/kernelsu" ]; then
@@ -160,9 +157,23 @@ jobs:
           # Add missing includes for kernel 4.19
           echo "Adding missing includes for kernel 4.19..."
           for f in drivers/kernelsu/*.c; do
-            if grep -q "#include <linux/sched.h>" "$f" && ! grep -q "linux/sched/task.h" "$f"; then
-              sed -i '/#include <linux\/sched.h>/a #include <linux/sched/task.h>' "$f"
-              echo "Added sched/task.h include to $f"
+            # Add sched/task.h for put_task_struct
+            if ! grep -q "linux/sched/task.h" "$f"; then
+              if grep -q "#include <linux/sched.h>" "$f"; then
+                sed -i '/#include <linux\/sched.h>/a #include <linux/sched/task.h>' "$f"
+                echo "Added sched/task.h include to $f"
+              elif grep -q "#include <linux" "$f"; then
+                sed -i '0,/#include <linux/s/#include <linux\/sched\/task.h>\n&/' "$f"
+                echo "Added sched/task.h at beginning of $f"
+              fi
+            fi
+          done
+
+          # Ensure all files that use put_task_struct have the include
+          for f in drivers/kernelsu/*.c; do
+            if grep -q "put_task_struct\|get_task_struct" "$f" && ! grep -q "linux/sched/task.h" "$f"; then
+              sed -i '1i #include <linux/sched/task.h>' "$f"
+              echo "Force added sched/task.h to $f for put_task_struct"
             fi
           done
 
