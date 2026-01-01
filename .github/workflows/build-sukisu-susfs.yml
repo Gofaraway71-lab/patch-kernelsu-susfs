@@ -323,15 +323,21 @@ jobs:
             fi
           done
 
-          # Fix pkg_observer.c for kernel 4.19 (handle_inode_event -> handle_event)
-          echo "Fixing pkg_observer.c for kernel 4.19..."
+          # Disable pkg_observer.c for kernel 4.19 (fsnotify API incompatible)
+          # The fsnotify API changed significantly in kernel 5.x - handle_inode_event was added
+          # and the callback signature is different. Safest to disable for 4.19.
+          echo "Disabling pkg_observer for kernel 4.19 (incompatible fsnotify API)..."
           if [ -f "drivers/kernelsu/pkg_observer.c" ]; then
-            if grep -q "handle_inode_event" drivers/kernelsu/pkg_observer.c; then
-              # Replace handle_inode_event with handle_event
-              sed -i 's/\.handle_inode_event/.handle_event/g' drivers/kernelsu/pkg_observer.c
-              # Comment out the incompatible code and add 4.19 compatible version
-              echo "Fixed handle_inode_event in pkg_observer.c"
-            fi
+            # Remove pkg_observer.o from the Makefile
+            sed -i '/pkg_observer.o/d' drivers/kernelsu/Makefile
+            # Create a stub pkg_observer.c that does nothing
+            cat > drivers/kernelsu/pkg_observer.c << 'STUBEOF'
+          // Disabled for kernel 4.19 - fsnotify API incompatible
+          #include <linux/types.h>
+          void ksu_pkg_observer_init(void) {}
+          void ksu_pkg_observer_exit(void) {}
+          STUBEOF
+            echo "Created stub pkg_observer.c for kernel 4.19"
           fi
 
           echo "=== KernelSU-Next Version ==="
