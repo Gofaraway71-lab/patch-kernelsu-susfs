@@ -104,8 +104,8 @@ jobs:
           echo "=== Applying 4.19 kernel patch ==="
           patch -p1 --force < ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch || true
           echo "=== Fixing failed patch hunks ==="
-          grep -q "linux/susfs.h" fs/open.c || sed -i '30a #include <linux/susfs.h>' fs/open.c
-          grep -q "linux/susfs.h" fs/proc/task_mmu.c || sed -i '30a #include <linux/susfs.h>' fs/proc/task_mmu.c
+          grep -q "linux/susfs.h" fs/open.c || sed -i '/#include <linux\/mount.h>/a #include <linux/susfs.h>' fs/open.c
+          grep -q "linux/susfs.h" fs/proc/task_mmu.c || sed -i '/#include <linux\/mmu_notifier.h>/a #include <linux/susfs.h>' fs/proc/task_mmu.c
           find . -name "*.rej" -delete 2>/dev/null || true
           find . -name "*.orig" -delete 2>/dev/null || true
           echo "=== Verifying SUSFS integration ==="
