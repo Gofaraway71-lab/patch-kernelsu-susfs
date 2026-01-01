@@ -157,23 +157,16 @@ jobs:
           # Add missing includes for kernel 4.19
           echo "Adding missing includes for kernel 4.19..."
           for f in drivers/kernelsu/*.c; do
-            # Add sched/task.h for put_task_struct
+            # Add sched/task.h for put_task_struct if not present
             if ! grep -q "linux/sched/task.h" "$f"; then
               if grep -q "#include <linux/sched.h>" "$f"; then
                 sed -i '/#include <linux\/sched.h>/a #include <linux/sched/task.h>' "$f"
                 echo "Added sched/task.h include to $f"
-              elif grep -q "#include <linux" "$f"; then
-                sed -i '0,/#include <linux/s/#include <linux\/sched\/task.h>\n&/' "$f"
+              else
+                # Add at the beginning of the file
+                sed -i '1i #include <linux/sched/task.h>' "$f"
                 echo "Added sched/task.h at beginning of $f"
               fi
-            fi
-          done
-
-          # Ensure all files that use put_task_struct have the include
-          for f in drivers/kernelsu/*.c; do
-            if grep -q "put_task_struct\|get_task_struct" "$f" && ! grep -q "linux/sched/task.h" "$f"; then
-              sed -i '1i #include <linux/sched/task.h>' "$f"
-              echo "Force added sched/task.h to $f for put_task_struct"
             fi
           done
 
