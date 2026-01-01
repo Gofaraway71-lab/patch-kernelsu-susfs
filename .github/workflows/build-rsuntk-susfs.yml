@@ -112,22 +112,28 @@ jobs:
           ls -la fs/susfs.c include/linux/susfs.h
           grep -l "susfs" fs/Makefile fs/namei.c fs/stat.c fs/readdir.c || true
 
-      - name: Setup rsuntk KernelSU with SUSFS (Non-GKI fork with SUSFS support)
+      - name: Setup rsuntk KernelSU (Non-GKI fork)
         run: |
           cd kernel
-          echo "Setting up rsuntk KernelSU + SUSFS (deprecated/susfs-legacy branch for non-GKI 4.19 kernels)..."
-
-          # rsuntk's susfs-legacy branch has KernelSU with integrated SUSFS support
-          # Using deprecated/susfs-legacy which is compatible with kernel 4.19
-          curl -LSs "https://raw.githubusercontent.com/rsuntk/KernelSU/deprecated/susfs-legacy/kernel/setup.sh" | bash -s deprecated/susfs-legacy
-
-          # Tell KernelSU that path_umount is available (we backported it)
+          echo "Setting up rsuntk KernelSU v1.0.5-83-legacy (non-GKI 4.19)..."
+          curl -LSs "https://raw.githubusercontent.com/rsuntk/KernelSU/main/kernel/setup.sh" | bash -s v1.0.5-83-legacy
           echo "ccflags-y += -DKSU_UMOUNT" >> drivers/kernelsu/Makefile
+          echo "=== KernelSU Version ==="
+          cat drivers/kernelsu/Makefile | head -10
 
-          # Show KernelSU version
-          echo "=== KernelSU + SUSFS Version ==="
-          cat drivers/kernelsu/ksu.h 2>/dev/null | grep -E "KSU_VERSION|KERNEL_SU_VERSION" || echo "Version info in Makefile"
-          cat drivers/kernelsu/Makefile | head -20
+      - name: Apply SUSFS patches to KernelSU
+        run: |
+          cd kernel
+          echo "Applying susfs4ksu patches to KernelSU..."
+          ls -la ../susfs4ksu/kernel_patches/KernelSU/
+          for patch in ../susfs4ksu/kernel_patches/KernelSU/*.patch; do
+            echo "Applying $patch..."
+            patch -p1 -d drivers/kernelsu --force < "$patch" || true
+          done
+          find drivers/kernelsu -name "*.rej" -delete 2>/dev/null || true
+          find drivers/kernelsu -name "*.orig" -delete 2>/dev/null || true
+          echo "=== KernelSU SUSFS integration ==="
+          grep -l "susfs" drivers/kernelsu/*.c drivers/kernelsu/*.h 2>/dev/null || echo "No SUSFS references found"
 
       - name: Check KernelSU + SUSFS Integration
         run: |
