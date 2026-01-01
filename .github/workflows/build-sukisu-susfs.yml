@@ -133,37 +133,21 @@ jobs:
           if grep -q "ANDROID_KABI_RESERVE" include/linux/sched.h; then
             echo "Found ANDROID_KABI_RESERVE entries, adding SUSFS fields..."
 
-            # Create a patch file for sched.h modifications
-            cat > /tmp/susfs_sched_patch.txt << 'PATCHEOF'
-          #ifdef CONFIG_KSU_SUSFS
-          #include <linux/susfs_def.h>
-          #endif
-          PATCHEOF
+            # Add susfs_def.h include after android_kabi.h using perl for reliable multiline
+            perl -i -pe 's|(#include <linux/android_kabi.h>)|$1\n#ifdef CONFIG_KSU_SUSFS\n#include <linux/susfs_def.h>\n#endif|' include/linux/sched.h
 
-            # Add susfs_def.h include after android_kabi.h
-            sed -i '/#include <linux\/android_kabi.h>/r /tmp/susfs_sched_patch.txt' include/linux/sched.h
-
-            # Replace ANDROID_KABI_RESERVE(6) with conditional SUSFS use
-            # Using printf to handle the newlines properly
-            REPLACE6=$(printf '#ifdef CONFIG_KSU_SUSFS\n\tANDROID_KABI_USE(6, u64 susfs_task_state);\n#else\n\tANDROID_KABI_RESERVE(6);\n#endif')
-            sed -i "s/ANDROID_KABI_RESERVE(6);/${REPLACE6}/g" include/linux/sched.h
+            # Replace ANDROID_KABI_RESERVE(6) with conditional SUSFS use using perl
+            perl -i -pe 's|(\t)ANDROID_KABI_RESERVE\(6\);|#ifdef CONFIG_KSU_SUSFS\n$1ANDROID_KABI_USE(6, u64 susfs_task_state);\n#else\n$1ANDROID_KABI_RESERVE(6);\n#endif|' include/linux/sched.h
 
             # Replace ANDROID_KABI_RESERVE(8) with conditional SUSFS use
-            REPLACE8=$(printf '#ifdef CONFIG_KSU_SUSFS\n\tANDROID_KABI_USE(8, u64 susfs_last_fake_mnt_id);\n#else\n\tANDROID_KABI_RESERVE(8);\n#endif')
-            sed -i "s/ANDROID_KABI_RESERVE(8);/${REPLACE8}/g" include/linux/sched.h
+            perl -i -pe 's|(\t)ANDROID_KABI_RESERVE\(8\);|#ifdef CONFIG_KSU_SUSFS\n$1ANDROID_KABI_USE(8, u64 susfs_last_fake_mnt_id);\n#else\n$1ANDROID_KABI_RESERVE(8);\n#endif|' include/linux/sched.h
 
             echo "=== Checking sched.h modifications ==="
             grep -n "susfs\|SUSFS\|KABI_USE" include/linux/sched.h | head -20
           else
             echo "No ANDROID_KABI_RESERVE found, adding SUSFS fields directly..."
-            # For kernels without KABI reserves, add fields directly before randomized_struct_fields_end
-            cat > /tmp/susfs_fields.txt << 'FIELDSEOF'
-          #ifdef CONFIG_KSU_SUSFS
-          	u64 susfs_task_state;
-          	u64 susfs_last_fake_mnt_id;
-          #endif
-          FIELDSEOF
-            sed -i '/randomized_struct_fields_end/r /tmp/susfs_fields.txt' include/linux/sched.h
+            # For kernels without KABI reserves, add fields using perl
+            perl -i -pe 's|(randomized_struct_fields_end)|#ifdef CONFIG_KSU_SUSFS\n\tu64 susfs_task_state;\n\tu64 susfs_last_fake_mnt_id;\n#endif\n$1|' include/linux/sched.h
           fi
 
           echo "Checking user_struct for ANDROID_KABI..."
