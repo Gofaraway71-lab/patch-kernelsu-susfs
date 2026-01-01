@@ -328,16 +328,34 @@ jobs:
           # and the callback signature is different. Safest to disable for 4.19.
           echo "Disabling pkg_observer for kernel 4.19 (incompatible fsnotify API)..."
           if [ -f "drivers/kernelsu/pkg_observer.c" ]; then
-            # Remove pkg_observer.o from the Makefile
-            sed -i '/pkg_observer.o/d' drivers/kernelsu/Makefile
-            # Create a stub pkg_observer.c that does nothing
+            # Create a stub pkg_observer.c with correct function names
             cat > drivers/kernelsu/pkg_observer.c << 'STUBEOF'
           // Disabled for kernel 4.19 - fsnotify API incompatible
           #include <linux/types.h>
-          void ksu_pkg_observer_init(void) {}
-          void ksu_pkg_observer_exit(void) {}
+          void ksu_observer_init(void) {}
+          void ksu_observer_exit(void) {}
           STUBEOF
             echo "Created stub pkg_observer.c for kernel 4.19"
+          fi
+
+          # Add ksu_try_umount stub if not defined (required by SUSFS)
+          echo "Adding ksu_try_umount stub for SUSFS..."
+          if ! grep -q "ksu_try_umount" drivers/kernelsu/*.c 2>/dev/null; then
+            # Check if there's an allowlist.c or similar where we can add it
+            if [ -f "drivers/kernelsu/allowlist.c" ]; then
+              cat >> drivers/kernelsu/allowlist.c << 'UMOUNTSTUB'
+
+          /* Stub for SUSFS - ksu_try_umount */
+          #include <linux/fs.h>
+          int ksu_try_umount(const char *mnt, bool check_mnt, int flags)
+          {
+              /* Stub implementation for kernel 4.19 */
+              return 0;
+          }
+          EXPORT_SYMBOL(ksu_try_umount);
+          UMOUNTSTUB
+              echo "Added ksu_try_umount stub"
+            fi
           fi
 
           echo "=== KernelSU-Next Version ==="
