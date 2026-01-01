@@ -171,19 +171,22 @@ jobs:
             fi
           done
 
-          # Fix can_umount unused function warning in namespace.c
-          # KernelSU-Next legacy adds can_umount but doesn't use it in older kernels
-          echo "Fixing can_umount unused function warning..."
-          if grep -q "static int can_umount" fs/namespace.c; then
-            sed -i 's/static int can_umount/static int __maybe_unused can_umount/' fs/namespace.c
-            echo "Marked can_umount as __maybe_unused"
-          fi
+          # KernelSU-Next legacy adds can_umount to fs/namespace.c during build
+          # We can't fix it before build, so we'll disable -Werror for unused-function
+          # by adding CFLAGS to fs/Makefile
+          echo "Disabling -Werror for unused functions in fs/ to handle can_umount..."
+          echo 'CFLAGS_namespace.o += -Wno-unused-function' >> fs/Makefile
+          echo "Added -Wno-unused-function flag for namespace.c"
 
           # Fix seccomp filter_count issue for kernel 4.19 (doesn't have filter_count)
+          # The atomic_set line needs to be removed entirely, not just the member replaced
           echo "Fixing seccomp filter_count for kernel 4.19..."
           if [ -f "drivers/kernelsu/app_profile.c" ]; then
-            sed -i 's/current->seccomp.filter_count/0/g' drivers/kernelsu/app_profile.c
-            echo "Fixed filter_count references in app_profile.c"
+            # Remove the entire atomic_set line for filter_count
+            sed -i '/atomic_set.*filter_count/d' drivers/kernelsu/app_profile.c
+            # Also handle any other filter_count references (non-atomic)
+            sed -i 's/current->seccomp\.filter_count/0/g' drivers/kernelsu/app_profile.c
+            echo "Removed atomic_set filter_count and fixed other references in app_profile.c"
           fi
 
           # Show KernelSU-Next version
