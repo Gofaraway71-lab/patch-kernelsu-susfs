@@ -171,6 +171,21 @@ jobs:
             fi
           done
 
+          # Fix can_umount unused function warning in namespace.c
+          # KernelSU-Next legacy adds can_umount but doesn't use it in older kernels
+          echo "Fixing can_umount unused function warning..."
+          if grep -q "static int can_umount" fs/namespace.c; then
+            sed -i 's/static int can_umount/static int __maybe_unused can_umount/' fs/namespace.c
+            echo "Marked can_umount as __maybe_unused"
+          fi
+
+          # Fix seccomp filter_count issue for kernel 4.19 (doesn't have filter_count)
+          echo "Fixing seccomp filter_count for kernel 4.19..."
+          if [ -f "drivers/kernelsu/app_profile.c" ]; then
+            sed -i 's/current->seccomp.filter_count/0/g' drivers/kernelsu/app_profile.c
+            echo "Fixed filter_count references in app_profile.c"
+          fi
+
           # Show KernelSU-Next version
           echo "=== KernelSU-Next Version ==="
           cat drivers/kernelsu/Makefile | head -20
