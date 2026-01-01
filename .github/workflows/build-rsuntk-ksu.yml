@@ -113,11 +113,11 @@ jobs:
       - name: Setup rsuntk KernelSU (Non-GKI fork with latest features)
         run: |
           cd kernel
-          echo "Setting up rsuntk KernelSU fork (supports non-GKI kernels with latest patches)..."
+          echo "Setting up rsuntk KernelSU fork v1.0.5-83-legacy (for non-GKI 4.19 kernels)..."
 
           # rsuntk's fork extends official KernelSU to support non-GKI kernels (4.4-4.19)
-          # It includes manual hooks for non-GKI kernels where kprobes don't work
-          curl -LSs "https://raw.githubusercontent.com/rsuntk/KernelSU/main/kernel/setup.sh" | bash -s main
+          # Using v1.0.5-83-legacy which is compatible with kernel 4.19
+          curl -LSs "https://raw.githubusercontent.com/rsuntk/KernelSU/main/kernel/setup.sh" | bash -s v1.0.5-83-legacy
 
           # Tell KernelSU that path_umount is available (we backported it)
           echo "ccflags-y += -DKSU_UMOUNT" >> drivers/kernelsu/Makefile
