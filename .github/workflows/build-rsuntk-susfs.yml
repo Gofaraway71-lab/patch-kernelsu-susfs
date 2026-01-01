@@ -70,9 +70,25 @@ jobs:
           # Fix ion_system_heap.c - NR_IONCACHE_PAGES undefined - comment out these checks
           sed -i 's/global_zone_page_state(NR_IONCACHE_PAGES)/0/g' drivers/staging/android/ion/ion_system_heap.c || true
 
-      - name: Backport get_cred_rcu (required for older kernels)
+      - name: Backport path_umount and get_cred_rcu (required for older kernels)
         run: |
           cd kernel
+          # path_umount was added in Linux 5.9, need to backport for 4.19
+          echo "Adding path_umount backport..."
+          cat >> fs/namespace.c << 'EOFPATCH'
+
+          /* Backport path_umount from Linux 5.9+ for KernelSU */
+          #include <linux/version.h>
+          #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 9, 0)
+          int path_umount(struct path *path, int flags)
+          {
+              struct mount *mnt = real_mount(path->mnt);
+              return do_umount(mnt, flags);
+          }
+          EXPORT_SYMBOL(path_umount);
+          #endif
+          EOFPATCH
+          sed -i '/^extern void mnt_set_expiry/i extern int path_umount(struct path *path, int flags);' include/linux/mount.h
           # Backport get_cred_rcu for kernels that don't have it
           if ! grep -q "get_cred_rcu" include/linux/cred.h; then
             echo "Adding get_cred_rcu backport..."
