@@ -127,13 +127,17 @@ jobs:
           echo "Applying susfs4ksu patches to KernelSU..."
           ls -la ../susfs4ksu/kernel_patches/KernelSU/
           for patch in ../susfs4ksu/kernel_patches/KernelSU/*.patch; do
-            echo "Applying $patch..."
-            patch -p1 -d drivers/kernelsu --force < "$patch" || true
+            echo "=== Applying $patch ==="
+            patch -p1 -d drivers/kernelsu --force < "$patch" 2>&1 || echo "Patch had issues, checking..."
           done
+          echo "=== Checking for reject files ==="
+          find drivers/kernelsu -name "*.rej" 2>/dev/null | while read f; do echo "REJECT: $f"; cat "$f"; done
           find drivers/kernelsu -name "*.rej" -delete 2>/dev/null || true
           find drivers/kernelsu -name "*.orig" -delete 2>/dev/null || true
-          echo "=== KernelSU SUSFS integration ==="
+          echo "=== KernelSU SUSFS integration check ==="
           grep -l "susfs" drivers/kernelsu/*.c drivers/kernelsu/*.h 2>/dev/null || echo "No SUSFS references found"
+          echo "=== Checking for Kconfig SUSFS options ==="
+          cat drivers/kernelsu/Kconfig 2>/dev/null | grep -A2 "SUSFS" || echo "No SUSFS in Kconfig"
 
       - name: Check KernelSU + SUSFS Integration
         run: |
@@ -162,13 +166,30 @@ jobs:
           scripts/config --file out/.config -e KALLSYMS
           scripts/config --file out/.config -e KALLSYMS_ALL
 
-          # Check for SUSFS config option and enable if exists
-          if grep -q "CONFIG_KSU_SUSFS" scripts/Kconfig* 2>/dev/null || grep -q "KSU_SUSFS" drivers/kernelsu/Kconfig 2>/dev/null; then
-            echo "Enabling SUSFS..."
-            scripts/config --file out/.config -e KSU_SUSFS
-          fi
+          # Enable all SUSFS features
+          echo "Enabling SUSFS and all sub-features..."
+          scripts/config --file out/.config -e KSU_SUSFS
+          scripts/config --file out/.config -e KSU_SUSFS_HAS_MAGIC_MOUNT
+          scripts/config --file out/.config -e KSU_SUSFS_SUS_PATH
+          scripts/config --file out/.config -e KSU_SUSFS_SUS_MOUNT
+          scripts/config --file out/.config -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
+          scripts/config --file out/.config -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
+          scripts/config --file out/.config -e KSU_SUSFS_SUS_KSTAT
+          scripts/config --file out/.config -e KSU_SUSFS_SUS_OVERLAYFS
+          scripts/config --file out/.config -e KSU_SUSFS_TRY_UMOUNT
+          scripts/config --file out/.config -e KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
+          scripts/config --file out/.config -e KSU_SUSFS_SPOOF_UNAME
+          scripts/config --file out/.config -e KSU_SUSFS_ENABLE_LOG
+          scripts/config --file out/.config -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+          scripts/config --file out/.config -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+          scripts/config --file out/.config -e KSU_SUSFS_OPEN_REDIRECT
+          scripts/config --file out/.config -e KSU_SUSFS_SUS_SU
 
           make O=out ARCH=arm64 olddefconfig
+
+          # Verify SUSFS is enabled
+          echo "=== Checking SUSFS config ==="
+          grep -E "CONFIG_KSU|SUSFS" out/.config | head -30 || echo "No SUSFS configs found"
 
       - name: Build Kernel
         run: |
