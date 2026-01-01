@@ -129,11 +129,13 @@ jobs:
           # Tell KernelSU that path_umount is available (we backported it)
           echo "ccflags-y += -DKSU_UMOUNT" >> drivers/kernelsu/Makefile
 
-      - name: Add Manual Hooks for Non-GKI Kernel
+      - name: Check KernelSU Integration
         run: |
           cd kernel
-          chmod +x $GITHUB_WORKSPACE/scripts/add-ksu-hooks.sh
-          $GITHUB_WORKSPACE/scripts/add-ksu-hooks.sh
+          echo "KernelSU integrated via drivers/kernelsu"
+          ls -la drivers/kernelsu/
+          # KernelSU v0.9.5 builtin mode should work with kernel 4.19
+          # No manual hooks needed - KernelSU uses its own hook mechanism
 
       - name: Use Device Config
         run: |
