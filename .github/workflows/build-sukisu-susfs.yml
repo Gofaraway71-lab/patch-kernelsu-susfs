@@ -183,6 +183,18 @@ jobs:
             echo "Fixed filter_count references in app_profile.c"
           fi
 
+          # Fix __NR_clone3 for kernel 4.19 (clone3 syscall was added in kernel 5.3)
+          echo "Fixing __NR_clone3 for kernel 4.19..."
+          for f in drivers/kernelsu/*.c; do
+            if grep -q "__NR_clone3" "$f"; then
+              # Add ifndef guard to define __NR_clone3 if not present
+              sed -i '1i #endif' "$f"
+              sed -i '1i #define __NR_clone3 -1' "$f"
+              sed -i '1i #ifndef __NR_clone3' "$f"
+              echo "Added __NR_clone3 fallback definition to $f"
+            fi
+          done
+
           echo "=== Checking Kconfig for SUSFS options ==="
           grep -E "SUSFS" drivers/kernelsu/Kconfig | head -20 || echo "No SUSFS in Kconfig"
 
