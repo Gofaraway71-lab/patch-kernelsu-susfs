@@ -59,37 +59,9 @@ sed -i '/^static long do_faccessat/,/^}/{
 #endif
 }' fs/open.c
 
-# Hook 3: fs/read_write.c - vfs_read hook
-echo "Patching fs/read_write.c..."
-
-cat > /tmp/read_hook.txt << 'HOOKEOF'
-
-#ifdef CONFIG_KSU
-extern bool ksu_vfs_read_hook __read_mostly;
-extern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr, size_t *count_ptr, loff_t **pos);
-#endif
-HOOKEOF
-sed -i '/#include <linux\/compat.h>/r /tmp/read_hook.txt' fs/read_write.c
-
-# For vfs_read - need to match ONLY within vfs_read function
-# Use awk to be more precise about function boundaries
-awk '
-/^ssize_t vfs_read\(struct file \*file, char __user \*buf, size_t count, loff_t \*pos\)$/ {
-    in_vfs_read = 1
-    print
-    next
-}
-in_vfs_read && /ssize_t ret;/ {
-    print
-    print "#ifdef CONFIG_KSU"
-    print "\tif (unlikely(ksu_vfs_read_hook))"
-    print "\t\tksu_handle_vfs_read(&file, &buf, &count, &pos);"
-    print "#endif"
-    in_vfs_read = 0
-    next
-}
-{ print }
-' fs/read_write.c > fs/read_write.c.tmp && mv fs/read_write.c.tmp fs/read_write.c
+# Hook 3: fs/read_write.c - vfs_read hook (OPTIONAL - may not be supported by all KSU forks)
+# Skip this hook as not all KernelSU forks export ksu_vfs_read_hook
+echo "Skipping fs/read_write.c hook (optional, not all KSU forks support it)..."
 
 # Hook 4: fs/stat.c - stat hook
 echo "Patching fs/stat.c..."
@@ -111,37 +83,7 @@ sed -i '/^int vfs_statx/,/^}/{
 }' fs/stat.c
 
 # Hook 5: drivers/input/input.c - input event hook for volume key detection
-echo "Patching drivers/input/input.c..."
-
-# Find a more reliable include to insert after
-cat > /tmp/input_hook.txt << 'HOOKEOF'
-
-#ifdef CONFIG_KSU
-extern bool ksu_input_hook __read_mostly;
-extern int ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);
-#endif
-HOOKEOF
-# Try multiple possible includes
-if grep -q '#include <linux/input.h>' drivers/input/input.c; then
-  sed -i '/#include <linux\/input.h>/r /tmp/input_hook.txt' drivers/input/input.c
-elif grep -q '#include "input-compat.h"' drivers/input/input.c; then
-  sed -i '/#include "input-compat.h"/r /tmp/input_hook.txt' drivers/input/input.c
-else
-  # Fallback: add at end of includes
-  sed -i '/^#define pr_fmt/a\
-#ifdef CONFIG_KSU\
-extern bool ksu_input_hook __read_mostly;\
-extern int ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);\
-#endif
-' drivers/input/input.c
-fi
-
-# For input_handle_event, insert after the variable declaration line
-sed -i '/int disposition = input_get_disposition(dev, type, code, \&value);/a\
-#ifdef CONFIG_KSU\
-	if (unlikely(ksu_input_hook))\
-		ksu_handle_input_handle_event(\&type, \&code, \&value);\
-#endif
-' drivers/input/input.c
+# Skip this hook as not all KernelSU forks export ksu_input_hook
+echo "Skipping drivers/input/input.c hook (optional, not all KSU forks support it)..."
 
 echo "Manual hooks added successfully!"
