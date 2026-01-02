@@ -115,11 +115,16 @@ jobs:
         run: |
           cd kernel
           echo "Setting up KernelSU-Next..."
-          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
+          # Use the official KernelSU-Next setup script from dev branch, let it pick latest tag
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev/kernel/setup.sh" | bash -
           if [ ! -d "drivers/kernelsu" ]; then
             echo "ERROR: KernelSU-Next setup failed!"
             exit 1
           fi
+          ls -la drivers/kernelsu/
+          echo "KernelSU-Next version:"
+          cat drivers/kernelsu/Makefile | head -20
+
           echo "Applying SUSFS patch to KernelSU-Next driver..."
           cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch drivers/kernelsu/
           cd drivers/kernelsu
@@ -143,6 +148,50 @@ jobs:
             echo "Added filter_count to seccomp.h"
           fi
           grep -A3 "struct seccomp {" include/linux/seccomp.h || true
+
+          # Fix put_task_struct - add sched/task.h header
+          echo "Fixing put_task_struct for kernel 4.19..."
+          for f in drivers/kernelsu/*.c; do
+            if grep -q "put_task_struct\|get_task_struct" "$f"; then
+              if ! grep -q "linux/sched/task.h" "$f"; then
+                sed -i '/#include <linux\/sched.h>/a #include <linux/sched/task.h>' "$f" || \
+                sed -i '1a #include <linux/sched/task.h>' "$f"
+                echo "Added sched/task.h to $f"
+              fi
+            fi
+          done
+
+          # Fix __NR_clone3 - not available in kernel 4.19
+          echo "Fixing __NR_clone3 for kernel 4.19..."
+          for f in drivers/kernelsu/*.c; do
+            if grep -q "__NR_clone3" "$f"; then
+              if ! grep -q "#ifndef __NR_clone3" "$f"; then
+                sed -i '1a #ifndef __NR_clone3\n#define __NR_clone3 -1\n#endif' "$f"
+                echo "Added __NR_clone3 define to $f"
+              fi
+            fi
+          done
+
+          # Disable pkg_observer for kernel 4.19 - fsnotify API is completely different
+          echo "Disabling pkg_observer for kernel 4.19 (incompatible fsnotify API)..."
+          cd drivers/kernelsu
+          if [ -f "pkg_observer.c" ]; then
+            mv pkg_observer.c pkg_observer.c.bak
+            echo "// Disabled for kernel 4.19 - incompatible fsnotify API" > pkg_observer.c
+            echo "// The handle_event callback signature changed significantly between 4.19 and 5.x" >> pkg_observer.c
+            echo "" >> pkg_observer.c
+            echo "#include <linux/module.h>" >> pkg_observer.c
+            echo "" >> pkg_observer.c
+            echo "// Stub functions to prevent link errors" >> pkg_observer.c
+            echo "void ksu_pkg_observer_init(void) {}" >> pkg_observer.c
+            echo "void ksu_pkg_observer_exit(void) {}" >> pkg_observer.c
+            echo "Created stub pkg_observer.c for kernel 4.19"
+          fi
+          if grep -q "pkg_observer.o" Makefile; then
+            sed -i 's/pkg_observer.o//' Makefile
+            echo "Removed pkg_observer.o from Makefile"
+          fi
+          cd ../..
 
       - name: Backport path_umount and get_cred_rcu
         run: |

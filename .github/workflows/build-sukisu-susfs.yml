@@ -167,15 +167,27 @@ jobs:
               echo "Added __NR_clone3 compat to $f"
             fi
           done
-          # Fix fsnotify API - handle_inode_event doesn't exist in 4.19
-          echo "Fixing fsnotify API for kernel 4.19..."
-          for f in *.c; do
-            if grep -q "handle_inode_event" "$f"; then
-              sed -i 's/\.handle_inode_event/.handle_event/g' "$f"
-              sed -i 's/handle_inode_event/handle_event/g' "$f"
-              echo "Fixed fsnotify in $f"
-            fi
-          done
+          # Disable pkg_observer for kernel 4.19 - fsnotify API is completely different
+          # The handle_event callback has incompatible signature between 4.19 and 5.x
+          echo "Disabling pkg_observer for kernel 4.19 (incompatible fsnotify API)..."
+          if [ -f "pkg_observer.c" ]; then
+            # Comment out the entire file
+            mv pkg_observer.c pkg_observer.c.bak
+            echo "// Disabled for kernel 4.19 - incompatible fsnotify API" > pkg_observer.c
+            echo "// The handle_event callback signature changed significantly between 4.19 and 5.x" >> pkg_observer.c
+            echo "" >> pkg_observer.c
+            echo "#include <linux/module.h>" >> pkg_observer.c
+            echo "" >> pkg_observer.c
+            echo "// Stub functions to prevent link errors" >> pkg_observer.c
+            echo "void ksu_pkg_observer_init(void) {}" >> pkg_observer.c
+            echo "void ksu_pkg_observer_exit(void) {}" >> pkg_observer.c
+            echo "Created stub pkg_observer.c for kernel 4.19"
+          fi
+          # Also remove from Makefile if needed
+          if grep -q "pkg_observer.o" Makefile; then
+            sed -i 's/pkg_observer.o//' Makefile
+            echo "Removed pkg_observer.o from Makefile"
+          fi
 
       - name: Fix seccomp.h for kernel 4.19
         run: |
