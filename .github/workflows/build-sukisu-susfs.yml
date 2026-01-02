@@ -111,23 +111,28 @@ jobs:
           fi
           grep "susfs" fs/Makefile
 
-      - name: Setup KernelSU with SUSFS support
+      - name: Setup SukiSU-Ultra with SUSFS support
         run: |
           cd kernel
-          echo "Setting up rsuntk KernelSU with SUSFS patch..."
-          curl -LSs "https://raw.githubusercontent.com/rsuntk/KernelSU/main/kernel/setup.sh" | bash -s v1.0.5-83-legacy
+          echo "Setting up SukiSU-Ultra..."
+          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
           if [ ! -d "drivers/kernelsu" ]; then
-            echo "ERROR: KernelSU setup failed!"
+            echo "ERROR: SukiSU-Ultra setup failed!"
             exit 1
           fi
-          echo "Applying SUSFS patch to KernelSU driver..."
-          cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch drivers/kernelsu/
-          cd drivers/kernelsu
-          patch -p1 --no-backup-if-mismatch -F3 < 10_enable_susfs_for_ksu.patch || echo "KernelSU SUSFS patch had some failures"
-          rm -f 10_enable_susfs_for_ksu.patch
-          find . -name "*.rej" -delete 2>/dev/null || true
-          find . -name "*.orig" -delete 2>/dev/null || true
-          cd ../..
+          echo "SukiSU-Ultra has built-in SUSFS support..."
+          # SukiSU-Ultra already includes SUSFS, but we need to ensure compatibility
+          # Apply kernel-side SUSFS patch if needed
+          if [ -f "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" ]; then
+            echo "Checking if additional SUSFS patches needed..."
+            cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch drivers/kernelsu/
+            cd drivers/kernelsu
+            patch -p1 --no-backup-if-mismatch -F3 < 10_enable_susfs_for_ksu.patch 2>/dev/null || echo "SukiSU may already have SUSFS integrated"
+            rm -f 10_enable_susfs_for_ksu.patch
+            find . -name "*.rej" -delete 2>/dev/null || true
+            find . -name "*.orig" -delete 2>/dev/null || true
+            cd ../..
+          fi
           echo "ccflags-y += -DKSU_UMOUNT" >> drivers/kernelsu/Makefile
           ls -la drivers/kernelsu/
 
@@ -199,7 +204,7 @@ jobs:
             sed -i '/^static inline void put_cred/r /tmp/get_cred_rcu.txt' include/linux/cred.h
           fi
 
-      - name: Fix KernelSU for kernel 4.19
+      - name: Fix SukiSU for kernel 4.19
         run: |
           cd kernel
           echo "Applying kernel 4.19 compatibility fixes..."
@@ -285,14 +290,14 @@ jobs:
           sed -i 's/device.name1=.*/device.name1=instantnoodlep/g' anykernel.sh
           sed -i 's|block=.*|block=/dev/block/bootdevice/by-name/boot;|g' anykernel.sh
           sed -i 's/is_slot_device=.*/is_slot_device=1;/g' anykernel.sh
-          ZIP_NAME="KernelSU-SUSFS_OnePlus8Pro_$(date +%Y%m%d).zip"
+          ZIP_NAME="SukiSU-SUSFS_OnePlus8Pro_$(date +%Y%m%d).zip"
           zip -r9 "$GITHUB_WORKSPACE/$ZIP_NAME" * -x .git README.md *placeholder
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
       - name: Create boot.img
         run: |
           cd kernel
-          BOOT_IMG="KernelSU-SUSFS_boot_OnePlus8Pro_$(date +%Y%m%d).img"
+          BOOT_IMG="SukiSU-SUSFS_boot_OnePlus8Pro_$(date +%Y%m%d).img"
           lz4 -l -12 --favor-decSpeed "$GITHUB_WORKSPACE/lineage-os/ramdisk.cpio" ramdisk.cpio.lz4
           python3 $GITHUB_WORKSPACE/mkbootimg/mkbootimg.py \
             --kernel out/arch/arm64/boot/Image \
@@ -327,14 +332,14 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ksu-susfs-${{ github.run_number }}
-          name: KernelSU + SUSFS Build ${{ github.run_number }}
+          tag_name: sukisu-susfs-${{ github.run_number }}
+          name: SukiSU-Ultra + SUSFS Build ${{ github.run_number }}
           body: |
-            ## KernelSU + SUSFS for OnePlus 8 Pro (LineageOS 23)
+            ## SukiSU-Ultra + SUSFS for OnePlus 8 Pro (LineageOS 23)
 
             This build uses [susfs4ksu](https://gitlab.com/simonpunk/susfs4ksu) kernel-4.19 branch with:
             - Full SUSFS kernel patches applied to kernel source
-            - rsuntk KernelSU fork with SUSFS support
+            - SukiSU-Ultra with built-in SUSFS support
             - Manual syscall hooks for non-GKI kernel 4.19
 
             ### SUSFS Features
@@ -347,11 +352,11 @@ jobs:
             - TRY_UMOUNT - Unmount for non-root processes
 
             ### Installation
-            - Flash `KernelSU-SUSFS_OnePlus8Pro_*.zip` via TWRP/custom recovery
+            - Flash `SukiSU-SUSFS_OnePlus8Pro_*.zip` via TWRP/custom recovery
             - Or fastboot flash the `boot.img` directly
 
             ### Manager
-            Use KernelSU Manager from: https://github.com/tiann/KernelSU/releases
+            Use SukiSU Manager from: https://github.com/ShirkNeko/SukiSU-Ultra/releases
           files: |
             ${{ env.ZIP_NAME }}
             ${{ env.BOOT_IMG }}
