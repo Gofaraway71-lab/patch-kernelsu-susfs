@@ -85,6 +85,15 @@ jobs:
             echo "Some misc patches failed..."
           }
 
+          # Apply LineageOS-specific fix patches for failed hunks
+          echo "=== Applying LineageOS fix patches ==="
+          echo "Fixing fs/exec.c include..."
+          patch -p1 --no-backup-if-mismatch -F3 < $GITHUB_WORKSPACE/susfs-patches/03_fix_exec.patch || true
+          echo "Fixing fs/namespace.c clone_mnt..."
+          patch -p1 --no-backup-if-mismatch -F3 < $GITHUB_WORKSPACE/susfs-patches/04_fix_namespace_clone_mnt.patch || true
+          echo "Fixing fs/proc/task_mmu.c pagemap_read..."
+          patch -p1 --no-backup-if-mismatch -F3 < $GITHUB_WORKSPACE/susfs-patches/05_fix_task_mmu.patch || true
+
           # Cleanup reject files
           find . -name "*.rej" -delete 2>/dev/null || true
           find . -name "*.orig" -delete 2>/dev/null || true
