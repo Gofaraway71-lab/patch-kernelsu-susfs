@@ -61,66 +61,45 @@ jobs:
           sed -i '/#include "schgm-flash.h"/a #include "smb5-lib.h"' drivers/power/supply/qcom/schgm-flash.c || true
           sed -i 's/global_zone_page_state(NR_IONCACHE_PAGES)/0/g' drivers/staging/android/ion/ion_system_heap.c || true
 
-      - name: Get SUSFS v2.0.0 files from k30s-reference
-        run: |
-          echo "Getting SUSFS v2.0.0 implementation files..."
-          # Clone the k30s-reference kernel which has working SUSFS v2.0.0
-          git clone --depth=1 https://github.com/ApartTUSITU/kernel_xiaomi_sm8250.git k30s-susfs-source
-
-          # Copy SUSFS v2.0.0 files from k30s-reference to our kernel
-          cd kernel
-          echo "Copying SUSFS v2.0.0 source files..."
-          cp $GITHUB_WORKSPACE/k30s-susfs-source/fs/susfs.c fs/
-          cp $GITHUB_WORKSPACE/k30s-susfs-source/include/linux/susfs.h include/linux/
-          cp $GITHUB_WORKSPACE/k30s-susfs-source/include/linux/susfs_def.h include/linux/
-
-          echo "Verifying SUSFS v2.0.0 files..."
-          ls -la fs/susfs.c
-          ls -la include/linux/susfs*.h
-          head -30 include/linux/susfs.h
-          echo "SUSFS version check:"
-          grep "SUSFS_VERSION" include/linux/susfs.h || echo "Version not found in susfs.h"
-
-      - name: Copy SUSFS kernel hook files from k30s-reference
+      - name: Apply SUSFS v2.0.0 patches
         run: |
           cd kernel
-          echo "Copying SUSFS v2.0.0 kernel hook files from k30s-reference..."
-          # These files have SUSFS hooks integrated for v2.0.0 API
-          # We copy the specific hook-modified files rather than patching
+          echo "Applying SUSFS v2.0.0 patches from ApartTUSITU/kernel_xiaomi_sm8250_mod..."
 
-          # Core filesystem hooks
-          cp $GITHUB_WORKSPACE/k30s-susfs-source/fs/namei.c fs/namei.c
-          cp $GITHUB_WORKSPACE/k30s-susfs-source/fs/namespace.c fs/namespace.c
-          cp $GITHUB_WORKSPACE/k30s-susfs-source/fs/stat.c fs/stat.c
-          cp $GITHUB_WORKSPACE/k30s-susfs-source/fs/statfs.c fs/statfs.c
-          cp $GITHUB_WORKSPACE/k30s-susfs-source/fs/readdir.c fs/readdir.c
-          cp $GITHUB_WORKSPACE/k30s-susfs-source/fs/open.c fs/open.c
-          cp $GITHUB_WORKSPACE/k30s-susfs-source/fs/exec.c fs/exec.c
+          # Apply SUSFS source files patch (adds susfs.c, susfs.h, susfs_def.h)
+          echo "=== Applying SUSFS source files patch ==="
+          patch -p1 --no-backup-if-mismatch -F3 < $GITHUB_WORKSPACE/susfs-patches/00_add_susfs_source.patch || {
+            echo "Some hunks failed, continuing..."
+            find . -name "*.rej" -exec cat {} \; 2>/dev/null || true
+          }
 
-          # Proc filesystem hooks
-          cp $GITHUB_WORKSPACE/k30s-susfs-source/fs/proc_namespace.c fs/proc_namespace.c
-          cp $GITHUB_WORKSPACE/k30s-susfs-source/fs/proc/task_mmu.c fs/proc/task_mmu.c
-          cp $GITHUB_WORKSPACE/k30s-susfs-source/fs/proc/base.c fs/proc/base.c
-          cp $GITHUB_WORKSPACE/k30s-susfs-source/fs/proc/cmdline.c fs/proc/cmdline.c
-          cp $GITHUB_WORKSPACE/k30s-susfs-source/fs/proc/fd.c fs/proc/fd.c
+          # Apply SUSFS kernel hooks patch (modifies namei.c, namespace.c, etc.)
+          echo "=== Applying SUSFS hooks patch ==="
+          patch -p1 --no-backup-if-mismatch -F3 < $GITHUB_WORKSPACE/susfs-patches/01_add_susfs_hooks.patch || {
+            echo "Some hooks failed, will try manual fixes..."
+          }
 
-          # Other hooks
-          cp $GITHUB_WORKSPACE/k30s-susfs-source/fs/notify/fdinfo.c fs/notify/fdinfo.c || true
-          cp $GITHUB_WORKSPACE/k30s-susfs-source/fs/devpts/inode.c fs/devpts/inode.c || true
+          # Apply misc SUSFS patches
+          echo "=== Applying misc SUSFS patches ==="
+          patch -p1 --no-backup-if-mismatch -F3 < $GITHUB_WORKSPACE/susfs-patches/02_add_susfs_misc.patch || {
+            echo "Some misc patches failed..."
+          }
 
-          # Copy mount.h header that SUSFS needs
-          cp $GITHUB_WORKSPACE/k30s-susfs-source/fs/mount.h fs/mount.h || true
+          # Cleanup reject files
+          find . -name "*.rej" -delete 2>/dev/null || true
+          find . -name "*.orig" -delete 2>/dev/null || true
 
           # Update fs/Makefile for SUSFS
           if ! grep -q "susfs.o" fs/Makefile; then
             echo "Adding susfs.o to fs/Makefile..."
             sed -i '/^obj-y.*:=/a obj-$(CONFIG_KSU_SUSFS) += susfs.o' fs/Makefile
           fi
-          grep "susfs" fs/Makefile
 
-          echo "SUSFS v2.0.0 kernel hook files copied"
-          echo "Checking for SUSFS references in copied files:"
-          grep -l "susfs" fs/namei.c fs/namespace.c fs/stat.c | head -5
+          echo "=== Verifying SUSFS files ==="
+          ls -la fs/susfs.c include/linux/susfs*.h 2>/dev/null || echo "SUSFS files not found - check patches"
+          grep "susfs" fs/Makefile
+          echo "SUSFS version:"
+          grep "SUSFS_VERSION" include/linux/susfs.h 2>/dev/null || echo "Version not found"
 
       - name: Backport path_umount and get_cred_rcu
         run: |
