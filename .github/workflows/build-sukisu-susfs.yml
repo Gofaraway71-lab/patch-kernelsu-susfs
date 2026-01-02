@@ -178,16 +178,33 @@ jobs:
           cd kernel
           echo "Fixing alloc_vfsmnt callers that weren't updated by SUSFS patch..."
 
-          # The SUSFS patch changes alloc_vfsmnt to take 3 args but some callers still use 1 arg
-          # Fix vfs_create_mount and any other callers with 1-arg calls
+          # The SUSFS patch changes alloc_vfsmnt to take 3 args when CONFIG_KSU_SUSFS_SUS_MOUNT is enabled
+          # But it doesn't handle vfs_create_mount which is backported in LineageOS from newer kernels
 
-          # Update single-argument calls to include the default args (false, 0)
-          sed -i 's/alloc_vfsmnt(fc->source ?: "none")/alloc_vfsmnt(fc->source ?: "none", false, 0)/g' fs/namespace.c
-          sed -i 's/alloc_vfsmnt(fc->source)/alloc_vfsmnt(fc->source, false, 0)/g' fs/namespace.c
+          # Find and fix vfs_create_mount function
+          # We need to wrap the alloc_vfsmnt call with #ifdef like the patch does for vfs_kern_mount
+
+          # Use awk to properly patch vfs_create_mount function
+          awk '
+          /^struct vfsmount \*vfs_create_mount\(/ { in_func = 1 }
+          in_func && /mnt = alloc_vfsmnt\(fc->source/ && !patched {
+              print "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT"
+              print "\tmnt = alloc_vfsmnt(fc->source ?: \"none\", false, 0);"
+              print "#else"
+              print
+              print "#endif"
+              patched = 1
+              next
+          }
+          in_func && /^}$/ { in_func = 0 }
+          { print }
+          ' fs/namespace.c > fs/namespace.c.tmp && mv fs/namespace.c.tmp fs/namespace.c
 
           # Verify the fix
           echo "Checking alloc_vfsmnt calls in namespace.c:"
-          grep -n "alloc_vfsmnt" fs/namespace.c | head -20
+          grep -n "alloc_vfsmnt" fs/namespace.c | head -30
+          echo "Checking vfs_create_mount fix:"
+          grep -A5 -B5 "vfs_create_mount" fs/namespace.c | head -40
 
       - name: Backport path_umount and get_cred_rcu
         run: |

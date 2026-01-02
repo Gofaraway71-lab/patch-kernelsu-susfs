@@ -190,7 +190,18 @@ jobs:
           cd "$KSU_PARENT"
 
           echo "Applying SUSFS patch with -p1 from KernelSU root..."
-          patch -p1 -F3 < 10_enable_susfs_for_ksu.patch
+          # Use --dry-run first to see what would happen
+          echo "=== Dry run first ==="
+          patch -p1 -F3 --dry-run < 10_enable_susfs_for_ksu.patch 2>&1 || true
+          echo "=== Applying patch ==="
+          patch -p1 -F3 < 10_enable_susfs_for_ksu.patch 2>&1 || true
+
+          # Check for rejected hunks
+          if ls kernel/*.rej 2>/dev/null; then
+            echo "=== REJECTED HUNKS ==="
+            cat kernel/*.rej
+            echo "=== Attempting manual fixes ==="
+          fi
 
           rm -f 10_enable_susfs_for_ksu.patch
           find . -name "*.rej" -delete 2>/dev/null || true
@@ -199,6 +210,99 @@ jobs:
           echo "Verifying SUSFS integration in KernelSU..."
           grep -l "susfs" kernel/*.c kernel/*.h 2>/dev/null | head -10 || echo "Warning: No susfs references found"
           grep -q "KSU_SUSFS" kernel/Kconfig && echo "SUSFS Kconfig options added" || echo "Warning: SUSFS Kconfig not found"
+
+      - name: Manually add SUSFS support if patch failed
+        run: |
+          cd kernel
+          KSU_DIR=$(readlink -f drivers/kernelsu)
+
+          # Check if SUSFS was properly integrated
+          if ! grep -q "CONFIG_KSU_SUSFS" "$KSU_DIR/Kconfig"; then
+            echo "SUSFS patch may have failed, adding manual integration..."
+
+            # Add SUSFS include to core_hook.c if not present
+            if ! grep -q "#include <linux/susfs.h>" "$KSU_DIR/core_hook.c"; then
+              sed -i '/#include "throne_tracker.h"/a #ifdef CONFIG_KSU_SUSFS\n#include <linux\/susfs.h>\n#endif' "$KSU_DIR/core_hook.c"
+            fi
+
+            # Add basic SUSFS Kconfig if not present
+            if ! grep -q "KSU_SUSFS" "$KSU_DIR/Kconfig"; then
+              echo '' >> "$KSU_DIR/Kconfig"
+              echo 'menu "KernelSU - SUSFS"' >> "$KSU_DIR/Kconfig"
+              echo 'config KSU_SUSFS' >> "$KSU_DIR/Kconfig"
+              echo '    bool "KernelSU addon - SUSFS"' >> "$KSU_DIR/Kconfig"
+              echo '    depends on KSU' >> "$KSU_DIR/Kconfig"
+              echo '    default y' >> "$KSU_DIR/Kconfig"
+              echo '' >> "$KSU_DIR/Kconfig"
+              echo 'config KSU_SUSFS_SUS_PATH' >> "$KSU_DIR/Kconfig"
+              echo '    bool "Enable sus_path"' >> "$KSU_DIR/Kconfig"
+              echo '    depends on KSU_SUSFS' >> "$KSU_DIR/Kconfig"
+              echo '    default y' >> "$KSU_DIR/Kconfig"
+              echo '' >> "$KSU_DIR/Kconfig"
+              echo 'config KSU_SUSFS_SUS_MOUNT' >> "$KSU_DIR/Kconfig"
+              echo '    bool "Enable sus_mount"' >> "$KSU_DIR/Kconfig"
+              echo '    depends on KSU_SUSFS' >> "$KSU_DIR/Kconfig"
+              echo '    default y' >> "$KSU_DIR/Kconfig"
+              echo '' >> "$KSU_DIR/Kconfig"
+              echo 'config KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT' >> "$KSU_DIR/Kconfig"
+              echo '    bool "Auto add sus KSU default mount"' >> "$KSU_DIR/Kconfig"
+              echo '    depends on KSU_SUSFS_SUS_MOUNT' >> "$KSU_DIR/Kconfig"
+              echo '    default y' >> "$KSU_DIR/Kconfig"
+              echo '' >> "$KSU_DIR/Kconfig"
+              echo 'config KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT' >> "$KSU_DIR/Kconfig"
+              echo '    bool "Auto add sus bind mount"' >> "$KSU_DIR/Kconfig"
+              echo '    depends on KSU_SUSFS_SUS_MOUNT' >> "$KSU_DIR/Kconfig"
+              echo '    default y' >> "$KSU_DIR/Kconfig"
+              echo '' >> "$KSU_DIR/Kconfig"
+              echo 'config KSU_SUSFS_SUS_KSTAT' >> "$KSU_DIR/Kconfig"
+              echo '    bool "Enable sus_kstat"' >> "$KSU_DIR/Kconfig"
+              echo '    depends on KSU_SUSFS' >> "$KSU_DIR/Kconfig"
+              echo '    default y' >> "$KSU_DIR/Kconfig"
+              echo '' >> "$KSU_DIR/Kconfig"
+              echo 'config KSU_SUSFS_TRY_UMOUNT' >> "$KSU_DIR/Kconfig"
+              echo '    bool "Enable try_umount"' >> "$KSU_DIR/Kconfig"
+              echo '    depends on KSU_SUSFS' >> "$KSU_DIR/Kconfig"
+              echo '    default y' >> "$KSU_DIR/Kconfig"
+              echo '' >> "$KSU_DIR/Kconfig"
+              echo 'config KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT' >> "$KSU_DIR/Kconfig"
+              echo '    bool "Auto add try_umount for bind mount"' >> "$KSU_DIR/Kconfig"
+              echo '    depends on KSU_SUSFS_TRY_UMOUNT' >> "$KSU_DIR/Kconfig"
+              echo '    default y' >> "$KSU_DIR/Kconfig"
+              echo '' >> "$KSU_DIR/Kconfig"
+              echo 'config KSU_SUSFS_SPOOF_UNAME' >> "$KSU_DIR/Kconfig"
+              echo '    bool "Enable spoof_uname"' >> "$KSU_DIR/Kconfig"
+              echo '    depends on KSU_SUSFS' >> "$KSU_DIR/Kconfig"
+              echo '    default y' >> "$KSU_DIR/Kconfig"
+              echo '' >> "$KSU_DIR/Kconfig"
+              echo 'config KSU_SUSFS_ENABLE_LOG' >> "$KSU_DIR/Kconfig"
+              echo '    bool "Enable SUSFS logging"' >> "$KSU_DIR/Kconfig"
+              echo '    depends on KSU_SUSFS' >> "$KSU_DIR/Kconfig"
+              echo '    default y' >> "$KSU_DIR/Kconfig"
+              echo '' >> "$KSU_DIR/Kconfig"
+              echo 'config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS' >> "$KSU_DIR/Kconfig"
+              echo '    bool "Hide KSU SUSFS symbols"' >> "$KSU_DIR/Kconfig"
+              echo '    depends on KSU_SUSFS' >> "$KSU_DIR/Kconfig"
+              echo '    default y' >> "$KSU_DIR/Kconfig"
+              echo '' >> "$KSU_DIR/Kconfig"
+              echo 'config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG' >> "$KSU_DIR/Kconfig"
+              echo '    bool "Enable cmdline/bootconfig spoofing"' >> "$KSU_DIR/Kconfig"
+              echo '    depends on KSU_SUSFS' >> "$KSU_DIR/Kconfig"
+              echo '    default y' >> "$KSU_DIR/Kconfig"
+              echo '' >> "$KSU_DIR/Kconfig"
+              echo 'config KSU_SUSFS_OPEN_REDIRECT' >> "$KSU_DIR/Kconfig"
+              echo '    bool "Enable open_redirect"' >> "$KSU_DIR/Kconfig"
+              echo '    depends on KSU_SUSFS' >> "$KSU_DIR/Kconfig"
+              echo '    default y' >> "$KSU_DIR/Kconfig"
+              echo '' >> "$KSU_DIR/Kconfig"
+              echo 'endmenu' >> "$KSU_DIR/Kconfig"
+            fi
+          fi
+
+          # Verify final state
+          echo "=== Final Kconfig check ==="
+          grep -A5 "KSU_SUSFS" "$KSU_DIR/Kconfig" | head -20
+          echo "=== Final core_hook.c check ==="
+          grep -c "susfs" "$KSU_DIR/core_hook.c" || echo "0 susfs references"
 
       - name: Disable kprobes and enable manual hooks
         run: |
