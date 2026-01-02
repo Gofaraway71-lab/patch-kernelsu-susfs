@@ -99,9 +99,9 @@ HOOKEOF
 sed -i '/#include <linux\/uaccess.h>/r /tmp/reboot_hook.txt' kernel/reboot.c
 
 # Insert the hook call at the beginning of SYSCALL_DEFINE4(reboot, ...)
-# Find the function and add hook after the variable declarations
+# Find the function and add hook after ALL variable declarations (int ret = 0;)
 sed -i '/^SYSCALL_DEFINE4(reboot,/,/^}/{
-  /struct pid_namespace \*pid_ns/a\
+  /int ret = 0;/a\
 \
 #ifdef CONFIG_KSU\
 	ksu_handle_sys_reboot(magic1, magic2, cmd, \&arg);\
