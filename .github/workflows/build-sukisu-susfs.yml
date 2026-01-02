@@ -176,35 +176,69 @@ jobs:
       - name: Fix SUSFS alloc_vfsmnt signature compatibility
         run: |
           cd kernel
-          echo "Fixing alloc_vfsmnt callers that weren't updated by SUSFS patch..."
+          echo "Fixing ALL alloc_vfsmnt callers that weren't updated by SUSFS patch..."
 
           # The SUSFS patch changes alloc_vfsmnt to take 3 args when CONFIG_KSU_SUSFS_SUS_MOUNT is enabled
-          # But it doesn't handle vfs_create_mount which is backported in LineageOS from newer kernels
+          # But some hunks fail on LineageOS kernel - we need to fix ALL callers manually
 
-          # Find and fix vfs_create_mount function
-          # We need to wrap the alloc_vfsmnt call with #ifdef like the patch does for vfs_kern_mount
+          # The three functions that call alloc_vfsmnt are:
+          # 1. vfs_create_mount (line ~1039) - new function not in original patch
+          # 2. vfs_kern_mount (line ~1089) - patch hunk failed
+          # 3. clone_mnt (line ~1134) - patch hunk failed
 
-          # Use awk to properly patch vfs_create_mount function
+          # Fix all alloc_vfsmnt calls by wrapping with #ifdef
+          # Use awk to patch ALL three functions at once
+
           awk '
-          /^struct vfsmount \*vfs_create_mount\(/ { in_func = 1 }
-          in_func && /mnt = alloc_vfsmnt\(fc->source/ && !patched {
+          BEGIN { in_vfs_create = 0; in_vfs_kern = 0; in_clone_mnt = 0 }
+
+          # Track which function we are in
+          /^struct vfsmount \*vfs_create_mount\(/ { in_vfs_create = 1 }
+          /^struct vfsmount \*vfs_kern_mount\(/ { in_vfs_kern = 1 }
+          /^static struct mount \*clone_mnt\(/ { in_clone_mnt = 1 }
+
+          # Fix vfs_create_mount
+          in_vfs_create && /mnt = alloc_vfsmnt\(fc->source/ && !/CONFIG_KSU_SUSFS/ {
               print "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT"
               print "\tmnt = alloc_vfsmnt(fc->source ?: \"none\", false, 0);"
               print "#else"
               print
               print "#endif"
-              patched = 1
               next
           }
-          in_func && /^}$/ { in_func = 0 }
+          in_vfs_create && /^}$/ { in_vfs_create = 0 }
+
+          # Fix vfs_kern_mount
+          in_vfs_kern && /mnt = alloc_vfsmnt\(name\)/ && !/CONFIG_KSU_SUSFS/ {
+              print "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT"
+              print "\tmnt = alloc_vfsmnt(name, false, 0);"
+              print "#else"
+              print
+              print "#endif"
+              next
+          }
+          in_vfs_kern && /^}$/ { in_vfs_kern = 0 }
+
+          # Fix clone_mnt
+          in_clone_mnt && /mnt = alloc_vfsmnt\(old->mnt_devname\)/ && !/CONFIG_KSU_SUSFS/ {
+              print "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT"
+              print "\tmnt = alloc_vfsmnt(old->mnt_devname, false, 0);"
+              print "#else"
+              print
+              print "#endif"
+              next
+          }
+          in_clone_mnt && /^}$/ { in_clone_mnt = 0 }
+
           { print }
           ' fs/namespace.c > fs/namespace.c.tmp && mv fs/namespace.c.tmp fs/namespace.c
 
-          # Verify the fix
-          echo "Checking alloc_vfsmnt calls in namespace.c:"
-          grep -n "alloc_vfsmnt" fs/namespace.c | head -30
-          echo "Checking vfs_create_mount fix:"
-          grep -A5 -B5 "vfs_create_mount" fs/namespace.c | head -40
+          # Verify the fixes
+          echo "=== Checking alloc_vfsmnt calls in namespace.c ==="
+          grep -n "alloc_vfsmnt" fs/namespace.c
+          echo ""
+          echo "=== Checking for #ifdef wrappers ==="
+          grep -B1 -A3 "alloc_vfsmnt" fs/namespace.c | head -60
 
       - name: Backport path_umount and get_cred_rcu
         run: |
