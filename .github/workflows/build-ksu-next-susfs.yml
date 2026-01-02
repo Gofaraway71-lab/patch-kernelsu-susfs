@@ -114,9 +114,9 @@ jobs:
       - name: Setup KernelSU-Next with SUSFS support
         run: |
           cd kernel
-          echo "Setting up KernelSU-Next..."
-          # Use the official KernelSU-Next setup script from dev branch, let it pick latest tag
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev/kernel/setup.sh" | bash -
+          echo "Setting up KernelSU-Next (legacy branch for non-GKI)..."
+          # Use the official KernelSU-Next setup script with legacy branch for non-GKI kernel 4.19
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev/kernel/setup.sh" | bash -s legacy
           if [ ! -d "drivers/kernelsu" ]; then
             echo "ERROR: KernelSU-Next setup failed!"
             exit 1
@@ -503,9 +503,10 @@ jobs:
           body: |
             ## KernelSU-Next + SUSFS for OnePlus 8 Pro (LineageOS 23)
 
-            This build uses [susfs4ksu](https://gitlab.com/simonpunk/susfs4ksu) kernel-4.19 branch with:
+            This build uses:
+            - [KernelSU-Next](https://github.com/KernelSU-Next/KernelSU-Next) **legacy** branch (non-GKI kernel support)
+            - [susfs4ksu](https://gitlab.com/simonpunk/susfs4ksu) kernel-4.19 branch
             - Full SUSFS kernel patches applied to kernel source
-            - KernelSU-Next with SUSFS support
             - Manual syscall hooks for non-GKI kernel 4.19
 
             ### SUSFS Features
@@ -522,7 +523,7 @@ jobs:
             - Or fastboot flash the `boot.img` directly
 
             ### Manager
-            Use KernelSU-Next Manager from: https://github.com/rifsxd/KernelSU-Next/releases
+            Use KernelSU-Next Manager from: https://github.com/KernelSU-Next/KernelSU-Next/releases
           files: |
             ${{ env.ZIP_NAME }}
             ${{ env.BOOT_IMG }}

@@ -114,8 +114,8 @@ jobs:
       - name: Setup SukiSU-Ultra with SUSFS support
         run: |
           cd kernel
-          echo "Setting up SukiSU-Ultra..."
-          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
+          echo "Setting up SukiSU-Ultra (builtin branch for non-GKI)..."
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
           if [ ! -d "drivers/kernelsu" ]; then
             echo "ERROR: SukiSU-Ultra setup failed!"
             exit 1
@@ -507,9 +507,10 @@ jobs:
           body: |
             ## SukiSU-Ultra + SUSFS for OnePlus 8 Pro (LineageOS 23)
 
-            This build uses [susfs4ksu](https://gitlab.com/simonpunk/susfs4ksu) kernel-4.19 branch with:
+            This build uses:
+            - [SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra) **builtin** branch (non-GKI kernel support)
+            - [susfs4ksu](https://gitlab.com/simonpunk/susfs4ksu) kernel-4.19 branch
             - Full SUSFS kernel patches applied to kernel source
-            - SukiSU-Ultra with built-in SUSFS support
             - Manual syscall hooks for non-GKI kernel 4.19
 
             ### SUSFS Features
@@ -526,7 +527,7 @@ jobs:
             - Or fastboot flash the `boot.img` directly
 
             ### Manager
-            Use SukiSU Manager from: https://github.com/ShirkNeko/SukiSU-Ultra/releases
+            Use SukiSU Manager from: https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases
           files: |
             ${{ env.ZIP_NAME }}
             ${{ env.BOOT_IMG }}
