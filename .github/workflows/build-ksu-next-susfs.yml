@@ -1,4 +1,4 @@
-name: Build LOS23 Kernel with KernelSU-Next (Non-GKI)
+name: Build LOS23 Kernel with KernelSU-Next + SUSFS (Non-GKI)
 
 on:
   workflow_dispatch:
@@ -51,6 +51,12 @@ jobs:
         run: |
           git clone --depth=1 -b $KERNEL_BRANCH $KERNEL_SOURCE kernel
 
+      - name: Clone susfs4ksu for kernel 4.19
+        run: |
+          echo "Cloning susfs4ksu kernel-4.19 branch..."
+          git clone --depth=1 -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu
+          ls -la susfs4ksu/kernel_patches/
+
       - name: Fix LineageOS 23 Bugs
         run: |
           cd kernel
@@ -60,6 +66,100 @@ jobs:
           sed -i '1i struct smb_charger;' drivers/power/supply/qcom/schgm-flash.h || true
           sed -i '/#include "schgm-flash.h"/a #include "smb5-lib.h"' drivers/power/supply/qcom/schgm-flash.c || true
           sed -i 's/global_zone_page_state(NR_IONCACHE_PAGES)/0/g' drivers/staging/android/ion/ion_system_heap.c || true
+
+      - name: Copy SUSFS kernel files
+        run: |
+          cd kernel
+          echo "Copying SUSFS source files to kernel..."
+          cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/fs/susfs.c fs/
+          cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/include/linux/*.h include/linux/
+          ls -la fs/susfs.c
+          ls -la include/linux/susfs*.h
+
+      - name: Apply SUSFS kernel patch
+        run: |
+          cd kernel
+          echo "Applying SUSFS kernel hooks patch for kernel 4.19..."
+          patch -p1 --no-backup-if-mismatch -F3 < $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch || echo "Some hunks failed - will fix manually"
+          find . -name "*.rej" -delete 2>/dev/null || true
+          find . -name "*.orig" -delete 2>/dev/null || true
+          if ! grep -q "susfs.o" fs/Makefile; then
+            echo "Adding susfs.o to fs/Makefile..."
+            sed -i '/^obj-y.*:=/a obj-$(CONFIG_KSU_SUSFS) += susfs.o' fs/Makefile
+          fi
+
+      - name: Backport path_umount and get_cred_rcu
+        run: |
+          cd kernel
+          echo "Adding kernel backports for 4.19..."
+
+          if ! grep -q "^static int can_umount" fs/namespace.c; then
+            echo "" >> fs/namespace.c
+            echo "/* Backport can_umount for SUSFS/KernelSU */" >> fs/namespace.c
+            echo "static int can_umount(const struct path *path, int flags)" >> fs/namespace.c
+            echo "{" >> fs/namespace.c
+            echo "    struct mount *mnt = real_mount(path->mnt);" >> fs/namespace.c
+            echo "    if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE | UMOUNT_NOFOLLOW))" >> fs/namespace.c
+            echo "        return -EINVAL;" >> fs/namespace.c
+            echo "    if (!may_mount())" >> fs/namespace.c
+            echo "        return -EPERM;" >> fs/namespace.c
+            echo "    if (path->dentry != path->mnt->mnt_root)" >> fs/namespace.c
+            echo "        return -EINVAL;" >> fs/namespace.c
+            echo "    if (!check_mnt(mnt))" >> fs/namespace.c
+            echo "        return -EINVAL;" >> fs/namespace.c
+            echo "    if (mnt->mnt.mnt_flags & MNT_LOCKED)" >> fs/namespace.c
+            echo "        return -EINVAL;" >> fs/namespace.c
+            echo "    if (flags & MNT_FORCE && !capable(CAP_SYS_ADMIN))" >> fs/namespace.c
+            echo "        return -EPERM;" >> fs/namespace.c
+            echo "    return 0;" >> fs/namespace.c
+            echo "}" >> fs/namespace.c
+          fi
+
+          if ! grep -q "^int path_umount" fs/namespace.c; then
+            echo "" >> fs/namespace.c
+            echo "/* Backport path_umount from Linux 5.9+ for KernelSU/SUSFS */" >> fs/namespace.c
+            echo "int path_umount(struct path *path, int flags)" >> fs/namespace.c
+            echo "{" >> fs/namespace.c
+            echo "    struct mount *mnt = real_mount(path->mnt);" >> fs/namespace.c
+            echo "    int ret;" >> fs/namespace.c
+            echo "    ret = can_umount(path, flags);" >> fs/namespace.c
+            echo "    if (!ret)" >> fs/namespace.c
+            echo "        ret = do_umount(mnt, flags);" >> fs/namespace.c
+            echo "    dput(path->dentry);" >> fs/namespace.c
+            echo "    mntput_no_expire(mnt);" >> fs/namespace.c
+            echo "    return ret;" >> fs/namespace.c
+            echo "}" >> fs/namespace.c
+            echo "EXPORT_SYMBOL(path_umount);" >> fs/namespace.c
+          fi
+
+          if ! grep -q "int path_umount" fs/internal.h; then
+            sed -i '/^extern void __init mnt_init/a int path_umount(struct path *path, int flags);' fs/internal.h
+          fi
+
+          if ! grep -q "get_cred_rcu" include/linux/cred.h; then
+            echo "Adding get_cred_rcu backport..."
+            echo "" > /tmp/get_cred_rcu.txt
+            echo "/* Backport get_cred_rcu for KernelSU */" >> /tmp/get_cred_rcu.txt
+            echo "static inline const struct cred *get_cred_rcu(const struct cred *cred)" >> /tmp/get_cred_rcu.txt
+            echo "{" >> /tmp/get_cred_rcu.txt
+            echo "    struct cred *nonconst_cred = (struct cred *) cred;" >> /tmp/get_cred_rcu.txt
+            echo "    if (!cred)" >> /tmp/get_cred_rcu.txt
+            echo "        return NULL;" >> /tmp/get_cred_rcu.txt
+            echo "    if (!atomic_inc_not_zero(&nonconst_cred->usage))" >> /tmp/get_cred_rcu.txt
+            echo "        return NULL;" >> /tmp/get_cred_rcu.txt
+            echo "    return cred;" >> /tmp/get_cred_rcu.txt
+            echo "}" >> /tmp/get_cred_rcu.txt
+            echo "" >> /tmp/get_cred_rcu.txt
+            LINE=$(grep -n "^static inline void put_cred" include/linux/cred.h | head -1 | cut -d: -f1)
+            if [ -n "$LINE" ]; then
+              head -n $((LINE - 1)) include/linux/cred.h > /tmp/cred_new.h
+              cat /tmp/get_cred_rcu.txt >> /tmp/cred_new.h
+              tail -n +$LINE include/linux/cred.h >> /tmp/cred_new.h
+              mv /tmp/cred_new.h include/linux/cred.h
+            fi
+          fi
+
+          echo 'CFLAGS_namespace.o += -Wno-unused-function' >> fs/Makefile
 
       - name: Setup KernelSU-Next (legacy branch)
         run: |
@@ -73,9 +173,30 @@ jobs:
           ls -la drivers/kernelsu/
           echo "KernelSU-Next version:"
           cat drivers/kernelsu/Makefile | head -20
-          echo "Checking for SUSFS support..."
-          grep -r "SUSFS" drivers/kernelsu/ | head -20 || echo "SUSFS may be integrated differently"
-          echo "ccflags-y += -DKSU_UMOUNT" >> drivers/kernelsu/Makefile
+
+      - name: Apply SUSFS patch to KernelSU-Next
+        run: |
+          cd kernel
+          echo "Applying SUSFS patch to KernelSU-Next driver..."
+          cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch drivers/kernelsu/
+          cd drivers/kernelsu
+          patch -p1 --no-backup-if-mismatch -F3 < 10_enable_susfs_for_ksu.patch || echo "KernelSU SUSFS patch had some failures"
+          rm -f 10_enable_susfs_for_ksu.patch
+          find . -name "*.rej" -delete 2>/dev/null || true
+          find . -name "*.orig" -delete 2>/dev/null || true
+          cd ../..
+
+      - name: Disable kprobes and enable manual hooks
+        run: |
+          cd kernel/drivers/kernelsu
+          echo "Disabling kprobes to force manual hooks..."
+          for f in *.c *.h; do
+            if [ -f "$f" ]; then
+              sed -i 's/#ifdef CONFIG_KPROBES/#if defined(CONFIG_KPROBES) \&\& 0/g' "$f"
+              sed -i 's/#if defined(CONFIG_KPROBES)/#if defined(CONFIG_KPROBES) \&\& 0/g' "$f"
+            fi
+          done
+          echo "ccflags-y += -DKSU_UMOUNT" >> Makefile
 
       - name: Add Manual KSU Hooks for Non-GKI
         run: |
@@ -84,9 +205,8 @@ jobs:
           if [ -f "$GITHUB_WORKSPACE/scripts/add-ksu-hooks.sh" ]; then
             bash $GITHUB_WORKSPACE/scripts/add-ksu-hooks.sh
           else
-            echo "Hook script not found, trying patch..."
-            curl -LSs "https://raw.githubusercontent.com/rksuorg/kernel_patches/master/manual_hook/kernel-4.19_5.4.patch" -o /tmp/manual_hook.patch
-            patch -p1 --no-backup-if-mismatch -F3 < /tmp/manual_hook.patch || echo "Patch applied with some failures"
+            echo "Hook script not found!"
+            exit 1
           fi
 
       - name: Use Device Config
@@ -96,20 +216,25 @@ jobs:
           cp $GITHUB_WORKSPACE/device_config out/.config
           make O=out ARCH=arm64 olddefconfig
 
-      - name: Enable KSU in Config
+      - name: Enable KSU and SUSFS in Config
         run: |
           cd kernel
           scripts/config --file out/.config -e KSU
+          scripts/config --file out/.config -e KSU_SUSFS
+          scripts/config --file out/.config -e KSU_SUSFS_SUS_PATH
+          scripts/config --file out/.config -e KSU_SUSFS_SUS_MOUNT
+          scripts/config --file out/.config -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
+          scripts/config --file out/.config -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
+          scripts/config --file out/.config -e KSU_SUSFS_SUS_KSTAT
+          scripts/config --file out/.config -e KSU_SUSFS_TRY_UMOUNT
+          scripts/config --file out/.config -e KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
+          scripts/config --file out/.config -e KSU_SUSFS_SPOOF_UNAME
+          scripts/config --file out/.config -e KSU_SUSFS_ENABLE_LOG
+          scripts/config --file out/.config -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+          scripts/config --file out/.config -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+          scripts/config --file out/.config -e KSU_SUSFS_OPEN_REDIRECT
           scripts/config --file out/.config -e KALLSYMS
           scripts/config --file out/.config -e KALLSYMS_ALL
-          # Enable SUSFS options if available
-          scripts/config --file out/.config -e KSU_SUSFS 2>/dev/null || true
-          scripts/config --file out/.config -e KSU_SUSFS_SUS_PATH 2>/dev/null || true
-          scripts/config --file out/.config -e KSU_SUSFS_SUS_MOUNT 2>/dev/null || true
-          scripts/config --file out/.config -e KSU_SUSFS_SUS_KSTAT 2>/dev/null || true
-          scripts/config --file out/.config -e KSU_SUSFS_TRY_UMOUNT 2>/dev/null || true
-          scripts/config --file out/.config -e KSU_SUSFS_SPOOF_UNAME 2>/dev/null || true
-          scripts/config --file out/.config -e KSU_SUSFS_ENABLE_LOG 2>/dev/null || true
           make O=out ARCH=arm64 olddefconfig
           grep -E "CONFIG_KSU" out/.config | head -30
 
@@ -138,14 +263,14 @@ jobs:
           sed -i 's/device.name1=.*/device.name1=instantnoodlep/g' anykernel.sh
           sed -i 's|block=.*|block=/dev/block/bootdevice/by-name/boot;|g' anykernel.sh
           sed -i 's/is_slot_device=.*/is_slot_device=1;/g' anykernel.sh
-          ZIP_NAME="KSU-Next_OnePlus8Pro_$(date +%Y%m%d).zip"
+          ZIP_NAME="KSU-Next-SUSFS_OnePlus8Pro_$(date +%Y%m%d).zip"
           zip -r9 "$GITHUB_WORKSPACE/$ZIP_NAME" * -x .git README.md *placeholder
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
       - name: Create boot.img
         run: |
           cd kernel
-          BOOT_IMG="KSU-Next_boot_OnePlus8Pro_$(date +%Y%m%d).img"
+          BOOT_IMG="KSU-Next-SUSFS_boot_OnePlus8Pro_$(date +%Y%m%d).img"
           lz4 -l -12 --favor-decSpeed "$GITHUB_WORKSPACE/lineage-os/ramdisk.cpio" ramdisk.cpio.lz4
           python3 $GITHUB_WORKSPACE/mkbootimg/mkbootimg.py \
             --kernel out/arch/arm64/boot/Image \
@@ -180,23 +305,23 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ksu-next-${{ github.run_number }}
-          name: KernelSU-Next Build ${{ github.run_number }}
+          tag_name: ksu-next-susfs-${{ github.run_number }}
+          name: KernelSU-Next + SUSFS Build ${{ github.run_number }}
           body: |
-            ## KernelSU-Next for OnePlus 8 Pro (LineageOS 23)
+            ## KernelSU-Next + SUSFS for OnePlus 8 Pro (LineageOS 23)
 
             This build uses:
-            - [KernelSU-Next](https://github.com/KernelSU-Next/KernelSU-Next) **legacy** branch (non-GKI kernel support)
-            - Manual syscall hooks for non-GKI kernel 4.19
+            - [KernelSU-Next](https://github.com/KernelSU-Next/KernelSU-Next) **legacy** branch (non-GKI)
+            - [susfs4ksu](https://gitlab.com/simonpunk/susfs4ksu) kernel-4.19 branch
+            - Manual syscall hooks (kprobes disabled)
 
-            ### Features
-            - KernelSU with SUSFS support (if integrated in legacy branch)
-            - Root hiding capabilities
-            - Module support
+            ### SUSFS Features
+            - SUS_PATH, SUS_MOUNT, SUS_KSTAT
+            - SPOOF_UNAME, OPEN_REDIRECT
+            - HIDE_KSU_SUSFS_SYMBOLS, TRY_UMOUNT
 
             ### Installation
-            - Flash `KSU-Next_OnePlus8Pro_*.zip` via TWRP/custom recovery
-            - Or fastboot flash the `boot.img` directly
+            - Flash via TWRP or fastboot boot.img
 
             ### Manager
             Use KernelSU-Next Manager from: https://github.com/KernelSU-Next/KernelSU-Next/releases
