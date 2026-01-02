@@ -140,19 +140,32 @@ jobs:
         run: |
           cd kernel/drivers/kernelsu
           echo "Fixing missing headers for kernel 4.19..."
+
           # Add missing include for put_task_struct at the top of the file
           for f in *.c; do
-            if grep -q "put_task_struct" "$f" && ! grep -q "linux/sched/task.h" "$f"; then
-              # Try multiple methods to add the include
-              if grep -q "#include <linux/sched.h>" "$f"; then
-                sed -i '/#include <linux\/sched.h>/a #include <linux/sched/task.h>' "$f"
-              else
-                # Add after any #include line
-                sed -i '0,/#include/{s/#include/#include <linux\/sched\/task.h>\n#include/}' "$f"
+            if grep -q "put_task_struct" "$f" || grep -q "get_task_struct" "$f"; then
+              if ! grep -q "linux/sched/task.h" "$f"; then
+                echo '#include <linux/sched/task.h>' > /tmp/fix_header.c
+                cat "$f" >> /tmp/fix_header.c
+                mv /tmp/fix_header.c "$f"
+                echo "Added sched/task.h to $f"
               fi
-              echo "Added sched/task.h to $f"
             fi
           done
+
+          # Fix force_sig API - kernel 4.19 requires 2 args (sig, task), newer kernels only 1
+          echo "Fixing force_sig API for kernel 4.19..."
+          for f in *.c; do
+            if grep -q "force_sig(SIGKILL)" "$f"; then
+              sed -i 's/force_sig(SIGKILL)/force_sig(SIGKILL, current)/g' "$f"
+              echo "Fixed force_sig SIGKILL in $f"
+            fi
+            if grep -q "force_sig(SIGSEGV)" "$f"; then
+              sed -i 's/force_sig(SIGSEGV)/force_sig(SIGSEGV, current)/g' "$f"
+              echo "Fixed force_sig SIGSEGV in $f"
+            fi
+          done
+
           # Define __NR_clone3 for kernel 4.19 (not available until 5.3)
           echo "Adding __NR_clone3 compatibility for kernel 4.19..."
           for f in *.c; do
@@ -167,11 +180,21 @@ jobs:
               echo "Added __NR_clone3 compat to $f"
             fi
           done
+
+          # Add stub for ksu_seccomp_allow_cache if missing
+          echo "Adding ksu_seccomp_allow_cache stub for kernel 4.19..."
+          if grep -rq "ksu_seccomp_allow_cache" *.c && ! grep -q "ksu_seccomp_allow_cache" *.h 2>/dev/null; then
+            # Check if it's defined anywhere
+            if ! grep -rq "^void ksu_seccomp_allow_cache\|^int ksu_seccomp_allow_cache" *.c; then
+              echo "// Stub for kernel 4.19" >> ksu_susfs.h 2>/dev/null || echo "// Stub for kernel 4.19" >> susfs.h 2>/dev/null || true
+              echo "static inline void ksu_seccomp_allow_cache(void) {}" >> ksu_susfs.h 2>/dev/null || echo "static inline void ksu_seccomp_allow_cache(void) {}" >> susfs.h 2>/dev/null || true
+              echo "Added ksu_seccomp_allow_cache stub"
+            fi
+          fi
+
           # Disable pkg_observer for kernel 4.19 - fsnotify API is completely different
-          # The handle_event callback has incompatible signature between 4.19 and 5.x
           echo "Disabling pkg_observer for kernel 4.19 (incompatible fsnotify API)..."
           if [ -f "pkg_observer.c" ]; then
-            # Comment out the entire file
             mv pkg_observer.c pkg_observer.c.bak
             echo "// Disabled for kernel 4.19 - incompatible fsnotify API" > pkg_observer.c
             echo "// The handle_event callback signature changed significantly between 4.19 and 5.x" >> pkg_observer.c
@@ -183,6 +206,7 @@ jobs:
             echo "void ksu_pkg_observer_exit(void) {}" >> pkg_observer.c
             echo "Created stub pkg_observer.c for kernel 4.19"
           fi
+
           # Also remove from Makefile if needed
           if grep -q "pkg_observer.o" Makefile; then
             sed -i 's/pkg_observer.o//' Makefile

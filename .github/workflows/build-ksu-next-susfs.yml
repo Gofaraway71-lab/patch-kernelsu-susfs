@@ -152,12 +152,27 @@ jobs:
           # Fix put_task_struct - add sched/task.h header
           echo "Fixing put_task_struct for kernel 4.19..."
           for f in drivers/kernelsu/*.c; do
-            if grep -q "put_task_struct\|get_task_struct" "$f"; then
+            if grep -q "put_task_struct" "$f" || grep -q "get_task_struct" "$f"; then
               if ! grep -q "linux/sched/task.h" "$f"; then
-                sed -i '/#include <linux\/sched.h>/a #include <linux/sched/task.h>' "$f" || \
-                sed -i '1a #include <linux/sched/task.h>' "$f"
+                # Create temp file with the include added at top
+                echo '#include <linux/sched/task.h>' > /tmp/fix_header.c
+                cat "$f" >> /tmp/fix_header.c
+                mv /tmp/fix_header.c "$f"
                 echo "Added sched/task.h to $f"
               fi
+            fi
+          done
+
+          # Fix force_sig API - kernel 4.19 requires 2 args (sig, task), newer kernels only 1
+          echo "Fixing force_sig API for kernel 4.19..."
+          for f in drivers/kernelsu/*.c; do
+            if grep -q "force_sig(SIGKILL)" "$f"; then
+              sed -i 's/force_sig(SIGKILL)/force_sig(SIGKILL, current)/g' "$f"
+              echo "Fixed force_sig in $f"
+            fi
+            if grep -q "force_sig(SIGSEGV)" "$f"; then
+              sed -i 's/force_sig(SIGSEGV)/force_sig(SIGSEGV, current)/g' "$f"
+              echo "Fixed force_sig SIGSEGV in $f"
             fi
           done
 
@@ -166,11 +181,43 @@ jobs:
           for f in drivers/kernelsu/*.c; do
             if grep -q "__NR_clone3" "$f"; then
               if ! grep -q "#ifndef __NR_clone3" "$f"; then
-                sed -i '1a #ifndef __NR_clone3\n#define __NR_clone3 -1\n#endif' "$f"
+                echo "/* Compat for kernel 4.19 */" > /tmp/fix_clone3.c
+                echo "#ifndef __NR_clone3" >> /tmp/fix_clone3.c
+                echo "#define __NR_clone3 -1" >> /tmp/fix_clone3.c
+                echo "#endif" >> /tmp/fix_clone3.c
+                echo "" >> /tmp/fix_clone3.c
+                cat "$f" >> /tmp/fix_clone3.c
+                mv /tmp/fix_clone3.c "$f"
                 echo "Added __NR_clone3 define to $f"
               fi
             fi
           done
+
+          # Add stub for ksu_seccomp_allow_cache if missing
+          echo "Checking for ksu_seccomp_allow_cache..."
+          cd drivers/kernelsu
+          if grep -rq "ksu_seccomp_allow_cache" *.c 2>/dev/null; then
+            if ! grep -rq "^void ksu_seccomp_allow_cache\|^int ksu_seccomp_allow_cache\|static.*ksu_seccomp_allow_cache" *.c 2>/dev/null; then
+              if ! grep -q "ksu_seccomp_allow_cache" *.h 2>/dev/null; then
+                # Create a simple header with the stub
+                echo "// Stub for kernel 4.19 - seccomp cache not available" > seccomp_compat.h
+                echo "#ifndef _KSU_SECCOMP_COMPAT_H" >> seccomp_compat.h
+                echo "#define _KSU_SECCOMP_COMPAT_H" >> seccomp_compat.h
+                echo "static inline void ksu_seccomp_allow_cache(void) {}" >> seccomp_compat.h
+                echo "#endif" >> seccomp_compat.h
+                # Add include to files that use it
+                for f in *.c; do
+                  if grep -q "ksu_seccomp_allow_cache" "$f"; then
+                    echo '#include "seccomp_compat.h"' > /tmp/fix_seccomp.c
+                    cat "$f" >> /tmp/fix_seccomp.c
+                    mv /tmp/fix_seccomp.c "$f"
+                    echo "Added seccomp_compat.h to $f"
+                  fi
+                done
+              fi
+            fi
+          fi
+          cd ../..
 
           # Disable pkg_observer for kernel 4.19 - fsnotify API is completely different
           echo "Disabling pkg_observer for kernel 4.19 (incompatible fsnotify API)..."
