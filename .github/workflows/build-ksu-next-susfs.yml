@@ -178,13 +178,27 @@ jobs:
         run: |
           cd kernel
           echo "Applying SUSFS patch to KernelSU-Next driver..."
-          cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch drivers/kernelsu/
-          cd drivers/kernelsu
-          patch -p1 --no-backup-if-mismatch -F3 < 10_enable_susfs_for_ksu.patch || echo "KernelSU SUSFS patch had some failures"
+
+          # Find where KernelSU was cloned (drivers/kernelsu is a symlink to KernelSU/kernel)
+          KSU_DIR=$(readlink -f drivers/kernelsu)
+          KSU_PARENT=$(dirname "$KSU_DIR")
+          echo "KernelSU directory: $KSU_PARENT"
+          ls -la "$KSU_PARENT"
+
+          # Copy patch to KernelSU parent and apply from there
+          cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch "$KSU_PARENT/"
+          cd "$KSU_PARENT"
+
+          echo "Applying SUSFS patch with -p1 from KernelSU root..."
+          patch -p1 -F3 < 10_enable_susfs_for_ksu.patch
+
           rm -f 10_enable_susfs_for_ksu.patch
           find . -name "*.rej" -delete 2>/dev/null || true
           find . -name "*.orig" -delete 2>/dev/null || true
-          cd ../..
+
+          echo "Verifying SUSFS integration in KernelSU..."
+          grep -l "susfs" kernel/*.c kernel/*.h 2>/dev/null | head -10 || echo "Warning: No susfs references found"
+          grep -q "KSU_SUSFS" kernel/Kconfig && echo "SUSFS Kconfig options added" || echo "Warning: SUSFS Kconfig not found"
 
       - name: Disable kprobes and enable manual hooks
         run: |
