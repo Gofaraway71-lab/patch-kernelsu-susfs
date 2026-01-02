@@ -173,6 +173,22 @@ jobs:
           fi
           grep "susfs" fs/Makefile
 
+      - name: Fix SUSFS alloc_vfsmnt signature compatibility
+        run: |
+          cd kernel
+          echo "Fixing alloc_vfsmnt callers that weren't updated by SUSFS patch..."
+
+          # The SUSFS patch changes alloc_vfsmnt to take 3 args but some callers still use 1 arg
+          # Fix vfs_create_mount and any other callers with 1-arg calls
+
+          # Update single-argument calls to include the default args (false, 0)
+          sed -i 's/alloc_vfsmnt(fc->source ?: "none")/alloc_vfsmnt(fc->source ?: "none", false, 0)/g' fs/namespace.c
+          sed -i 's/alloc_vfsmnt(fc->source)/alloc_vfsmnt(fc->source, false, 0)/g' fs/namespace.c
+
+          # Verify the fix
+          echo "Checking alloc_vfsmnt calls in namespace.c:"
+          grep -n "alloc_vfsmnt" fs/namespace.c | head -20
+
       - name: Backport path_umount and get_cred_rcu
         run: |
           cd kernel
