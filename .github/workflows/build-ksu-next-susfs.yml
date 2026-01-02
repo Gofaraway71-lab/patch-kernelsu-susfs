@@ -1,4 +1,4 @@
-name: Build LOS23 Kernel with SukiSU-Ultra + SUSFS (Non-GKI)
+name: Build LOS23 Kernel with KernelSU-Next + SUSFS (Non-GKI)
 
 on:
   workflow_dispatch:
@@ -111,73 +111,27 @@ jobs:
           fi
           grep "susfs" fs/Makefile
 
-      - name: Setup SukiSU-Ultra with SUSFS support
+      - name: Setup KernelSU-Next with SUSFS support
         run: |
           cd kernel
-          echo "Setting up SukiSU-Ultra..."
-          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
+          echo "Setting up KernelSU-Next..."
+          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
           if [ ! -d "drivers/kernelsu" ]; then
-            echo "ERROR: SukiSU-Ultra setup failed!"
+            echo "ERROR: KernelSU-Next setup failed!"
             exit 1
           fi
-          echo "SukiSU-Ultra has built-in SUSFS support..."
-          # SukiSU-Ultra already includes SUSFS, but we need to ensure compatibility
-          # Apply kernel-side SUSFS patch if needed
-          if [ -f "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" ]; then
-            echo "Checking if additional SUSFS patches needed..."
-            cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch drivers/kernelsu/
-            cd drivers/kernelsu
-            patch -p1 --no-backup-if-mismatch -F3 < 10_enable_susfs_for_ksu.patch 2>/dev/null || echo "SukiSU may already have SUSFS integrated"
-            rm -f 10_enable_susfs_for_ksu.patch
-            find . -name "*.rej" -delete 2>/dev/null || true
-            find . -name "*.orig" -delete 2>/dev/null || true
-            cd ../..
-          fi
+          echo "Applying SUSFS patch to KernelSU-Next driver..."
+          cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch drivers/kernelsu/
+          cd drivers/kernelsu
+          patch -p1 --no-backup-if-mismatch -F3 < 10_enable_susfs_for_ksu.patch || echo "KernelSU SUSFS patch had some failures"
+          rm -f 10_enable_susfs_for_ksu.patch
+          find . -name "*.rej" -delete 2>/dev/null || true
+          find . -name "*.orig" -delete 2>/dev/null || true
+          cd ../..
           echo "ccflags-y += -DKSU_UMOUNT" >> drivers/kernelsu/Makefile
           ls -la drivers/kernelsu/
 
-      - name: Fix SukiSU for kernel 4.19 headers
-        run: |
-          cd kernel/drivers/kernelsu
-          echo "Fixing missing headers for kernel 4.19..."
-          # Add missing include for put_task_struct at the top of the file
-          for f in *.c; do
-            if grep -q "put_task_struct" "$f" && ! grep -q "linux/sched/task.h" "$f"; then
-              # Try multiple methods to add the include
-              if grep -q "#include <linux/sched.h>" "$f"; then
-                sed -i '/#include <linux\/sched.h>/a #include <linux/sched/task.h>' "$f"
-              else
-                # Add after any #include line
-                sed -i '0,/#include/{s/#include/#include <linux\/sched\/task.h>\n#include/}' "$f"
-              fi
-              echo "Added sched/task.h to $f"
-            fi
-          done
-          # Define __NR_clone3 for kernel 4.19 (not available until 5.3)
-          echo "Adding __NR_clone3 compatibility for kernel 4.19..."
-          for f in *.c; do
-            if grep -q "__NR_clone3" "$f" && ! grep -q "ifndef __NR_clone3" "$f"; then
-              echo "/* Compat for kernel 4.19 */" > /tmp/fixed_file.c
-              echo "#ifndef __NR_clone3" >> /tmp/fixed_file.c
-              echo "#define __NR_clone3 -1" >> /tmp/fixed_file.c
-              echo "#endif" >> /tmp/fixed_file.c
-              echo "" >> /tmp/fixed_file.c
-              cat "$f" >> /tmp/fixed_file.c
-              mv /tmp/fixed_file.c "$f"
-              echo "Added __NR_clone3 compat to $f"
-            fi
-          done
-          # Fix fsnotify API - handle_inode_event doesn't exist in 4.19
-          echo "Fixing fsnotify API for kernel 4.19..."
-          for f in *.c; do
-            if grep -q "handle_inode_event" "$f"; then
-              sed -i 's/\.handle_inode_event/.handle_event/g' "$f"
-              sed -i 's/handle_inode_event/handle_event/g' "$f"
-              echo "Fixed fsnotify in $f"
-            fi
-          done
-
-      - name: Fix seccomp.h for kernel 4.19
+      - name: Fix KernelSU-Next for kernel 4.19
         run: |
           cd kernel
           echo "Adding filter_count to seccomp structure..."
@@ -187,8 +141,8 @@ jobs:
               sed -i '/#include <linux\/thread_info.h>/a #include <linux/atomic.h>' include/linux/seccomp.h
             fi
             echo "Added filter_count to seccomp.h"
-            grep -A3 "struct seccomp {" include/linux/seccomp.h
           fi
+          grep -A3 "struct seccomp {" include/linux/seccomp.h || true
 
       - name: Backport path_umount and get_cred_rcu
         run: |
@@ -264,7 +218,7 @@ jobs:
             fi
           fi
 
-      - name: Fix SukiSU for kernel 4.19
+      - name: Fix KernelSU for kernel 4.19
         run: |
           cd kernel
           echo "Applying kernel 4.19 compatibility fixes..."
@@ -350,14 +304,14 @@ jobs:
           sed -i 's/device.name1=.*/device.name1=instantnoodlep/g' anykernel.sh
           sed -i 's|block=.*|block=/dev/block/bootdevice/by-name/boot;|g' anykernel.sh
           sed -i 's/is_slot_device=.*/is_slot_device=1;/g' anykernel.sh
-          ZIP_NAME="SukiSU-SUSFS_OnePlus8Pro_$(date +%Y%m%d).zip"
+          ZIP_NAME="KSU-Next-SUSFS_OnePlus8Pro_$(date +%Y%m%d).zip"
           zip -r9 "$GITHUB_WORKSPACE/$ZIP_NAME" * -x .git README.md *placeholder
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
       - name: Create boot.img
         run: |
           cd kernel
-          BOOT_IMG="SukiSU-SUSFS_boot_OnePlus8Pro_$(date +%Y%m%d).img"
+          BOOT_IMG="KSU-Next-SUSFS_boot_OnePlus8Pro_$(date +%Y%m%d).img"
           lz4 -l -12 --favor-decSpeed "$GITHUB_WORKSPACE/lineage-os/ramdisk.cpio" ramdisk.cpio.lz4
           python3 $GITHUB_WORKSPACE/mkbootimg/mkbootimg.py \
             --kernel out/arch/arm64/boot/Image \
@@ -392,14 +346,14 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: sukisu-susfs-${{ github.run_number }}
-          name: SukiSU-Ultra + SUSFS Build ${{ github.run_number }}
+          tag_name: ksu-next-susfs-${{ github.run_number }}
+          name: KernelSU-Next + SUSFS Build ${{ github.run_number }}
           body: |
-            ## SukiSU-Ultra + SUSFS for OnePlus 8 Pro (LineageOS 23)
+            ## KernelSU-Next + SUSFS for OnePlus 8 Pro (LineageOS 23)
 
             This build uses [susfs4ksu](https://gitlab.com/simonpunk/susfs4ksu) kernel-4.19 branch with:
             - Full SUSFS kernel patches applied to kernel source
-            - SukiSU-Ultra with built-in SUSFS support
+            - KernelSU-Next with SUSFS support
             - Manual syscall hooks for non-GKI kernel 4.19
 
             ### SUSFS Features
@@ -412,11 +366,11 @@ jobs:
             - TRY_UMOUNT - Unmount for non-root processes
 
             ### Installation
-            - Flash `SukiSU-SUSFS_OnePlus8Pro_*.zip` via TWRP/custom recovery
+            - Flash `KSU-Next-SUSFS_OnePlus8Pro_*.zip` via TWRP/custom recovery
             - Or fastboot flash the `boot.img` directly
 
             ### Manager
-            Use SukiSU Manager from: https://github.com/ShirkNeko/SukiSU-Ultra/releases
+            Use KernelSU-Next Manager from: https://github.com/rifsxd/KernelSU-Next/releases
           files: |
             ${{ env.ZIP_NAME }}
             ${{ env.BOOT_IMG }}
