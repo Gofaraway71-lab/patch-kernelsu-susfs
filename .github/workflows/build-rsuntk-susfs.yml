@@ -181,22 +181,28 @@ jobs:
             sed -i '/^extern void __init mnt_init/a int path_umount(struct path *path, int flags);' fs/internal.h
           fi
 
-          # Backport get_cred_rcu using a temp file
+          # Backport get_cred_rcu - insert BEFORE put_cred function
           if ! grep -q "get_cred_rcu" include/linux/cred.h; then
             echo "Adding get_cred_rcu backport..."
-            cat > /tmp/get_cred_rcu.txt << 'CREDEOF'
-          /* Backport get_cred_rcu for KernelSU */
-          static inline const struct cred *get_cred_rcu(const struct cred *cred)
-          {
-              struct cred *nonconst_cred = (struct cred *) cred;
-              if (!cred)
-                  return NULL;
-              if (!atomic_inc_not_zero(&nonconst_cred->usage))
-                  return NULL;
-              return cred;
-          }
-          CREDEOF
-            sed -i '/^static inline void put_cred/r /tmp/get_cred_rcu.txt' include/linux/cred.h
+            echo "" > /tmp/get_cred_rcu.txt
+            echo "/* Backport get_cred_rcu for KernelSU */" >> /tmp/get_cred_rcu.txt
+            echo "static inline const struct cred *get_cred_rcu(const struct cred *cred)" >> /tmp/get_cred_rcu.txt
+            echo "{" >> /tmp/get_cred_rcu.txt
+            echo "    struct cred *nonconst_cred = (struct cred *) cred;" >> /tmp/get_cred_rcu.txt
+            echo "    if (!cred)" >> /tmp/get_cred_rcu.txt
+            echo "        return NULL;" >> /tmp/get_cred_rcu.txt
+            echo "    if (!atomic_inc_not_zero(&nonconst_cred->usage))" >> /tmp/get_cred_rcu.txt
+            echo "        return NULL;" >> /tmp/get_cred_rcu.txt
+            echo "    return cred;" >> /tmp/get_cred_rcu.txt
+            echo "}" >> /tmp/get_cred_rcu.txt
+            echo "" >> /tmp/get_cred_rcu.txt
+            LINE=$(grep -n "^static inline void put_cred" include/linux/cred.h | head -1 | cut -d: -f1)
+            if [ -n "$LINE" ]; then
+              head -n $((LINE - 1)) include/linux/cred.h > /tmp/cred_new.h
+              cat /tmp/get_cred_rcu.txt >> /tmp/cred_new.h
+              tail -n +$LINE include/linux/cred.h >> /tmp/cred_new.h
+              mv /tmp/cred_new.h include/linux/cred.h
+            fi
           fi
 
       - name: Fix KernelSU for kernel 4.19
