@@ -116,10 +116,10 @@ jobs:
           cd kernel
           echo "Setting up SukiSU-Ultra with SUSFS support for non-GKI kernel..."
 
-          # SukiSU-Ultra for non-GKI kernels with built-in SUSFS
-          # The susfs-main branch includes SUSFS support without needing separate patches
-          echo "Setting up SukiSU-Ultra (susfs-main branch for non-GKI with SUSFS)..."
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-main
+          # SukiSU-Ultra for non-GKI kernels
+          # Using builtin mode which includes SUSFS options in Kconfig
+          echo "Setting up SukiSU-Ultra (builtin mode for non-GKI)..."
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
 
           # Verify setup worked
           if [ ! -d "drivers/kernelsu" ]; then
@@ -171,9 +171,15 @@ jobs:
           done
 
           # Fix seccomp filter_count issue for kernel 4.19 (doesn't have filter_count)
+          # The filter_count member was added in kernel 5.x
           echo "Fixing seccomp filter_count for kernel 4.19..."
           if [ -f "drivers/kernelsu/app_profile.c" ]; then
-            sed -i 's/current->seccomp.filter_count/0/g' drivers/kernelsu/app_profile.c
+            # Remove entire lines with atomic_set that reference filter_count
+            # These lines try to reset seccomp filter count which doesn't exist in 4.19
+            sed -i '/atomic_set.*filter_count/d' drivers/kernelsu/app_profile.c
+            # Also handle any non-atomic references
+            sed -i 's/current->seccomp\.filter_count/0/g' drivers/kernelsu/app_profile.c
+            sed -i 's/tsk->seccomp\.filter_count/0/g' drivers/kernelsu/app_profile.c
             echo "Fixed filter_count references in app_profile.c"
           fi
 
