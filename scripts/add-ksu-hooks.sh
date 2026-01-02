@@ -86,4 +86,26 @@ sed -i '/^int vfs_statx/,/^}/{
 # Skip this hook as not all KernelSU forks export ksu_input_hook
 echo "Skipping drivers/input/input.c hook (optional, not all KSU forks support it)..."
 
+# Hook 6: kernel/reboot.c - CRITICAL for SUSFS supercalls
+# This hook allows KernelSU/SUSFS to receive commands via sys_reboot syscall
+echo "Patching kernel/reboot.c (CRITICAL for SUSFS)..."
+
+cat > /tmp/reboot_hook.txt << 'HOOKEOF'
+
+#ifdef CONFIG_KSU
+extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);
+#endif
+HOOKEOF
+sed -i '/#include <linux\/uaccess.h>/r /tmp/reboot_hook.txt' kernel/reboot.c
+
+# Insert the hook call at the beginning of SYSCALL_DEFINE4(reboot, ...)
+# Find the function and add hook after the variable declarations
+sed -i '/^SYSCALL_DEFINE4(reboot,/,/^}/{
+  /struct pid_namespace \*pid_ns/a\
+\
+#ifdef CONFIG_KSU\
+	ksu_handle_sys_reboot(magic1, magic2, cmd, \&arg);\
+#endif
+}' kernel/reboot.c
+
 echo "Manual hooks added successfully!"
