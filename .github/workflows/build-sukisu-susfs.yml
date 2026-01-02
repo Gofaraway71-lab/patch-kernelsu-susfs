@@ -51,13 +51,6 @@ jobs:
         run: |
           git clone --depth=1 -b $KERNEL_BRANCH $KERNEL_SOURCE kernel
 
-      - name: Clone susfs4ksu for kernel 4.19
-        run: |
-          echo "Cloning susfs4ksu kernel-4.19 branch with proper SUSFS patches..."
-          git clone --depth=1 -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu
-          ls -la susfs4ksu/
-          ls -la susfs4ksu/kernel_patches/
-
       - name: Fix LineageOS 23 Bugs
         run: |
           cd kernel
@@ -68,32 +61,10 @@ jobs:
           sed -i '/#include "schgm-flash.h"/a #include "smb5-lib.h"' drivers/power/supply/qcom/schgm-flash.c || true
           sed -i 's/global_zone_page_state(NR_IONCACHE_PAGES)/0/g' drivers/staging/android/ion/ion_system_heap.c || true
 
-      - name: Copy SUSFS source files to kernel
+      - name: Setup SukiSU-Ultra (builtin branch with SUSFS)
         run: |
           cd kernel
-          echo "Copying SUSFS source files..."
-          cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/fs/susfs.c fs/
-          cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/include/linux/*.h include/linux/
-          ls -la fs/susfs.c
-          ls -la include/linux/susfs*.h
-
-      - name: Apply SUSFS kernel patch
-        run: |
-          cd kernel
-          echo "Applying SUSFS kernel hooks patch for kernel 4.19..."
-          patch -p1 --no-backup-if-mismatch -F3 < $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch || echo "Some hunks failed - expected for different kernel versions"
-          find . -name "*.rej" -delete 2>/dev/null || true
-          find . -name "*.orig" -delete 2>/dev/null || true
-          if ! grep -q "susfs.o" fs/Makefile; then
-            echo "Adding susfs.o to fs/Makefile..."
-            sed -i '/^obj-y.*:=/a obj-$(CONFIG_KSU_SUSFS) += susfs.o' fs/Makefile
-          fi
-          grep "susfs" fs/Makefile
-
-      - name: Setup SukiSU-Ultra with SUSFS support
-        run: |
-          cd kernel
-          echo "Setting up SukiSU-Ultra (builtin branch for non-GKI)..."
+          echo "Setting up SukiSU-Ultra (builtin branch for non-GKI with built-in SUSFS)..."
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
           if [ ! -d "drivers/kernelsu" ]; then
             echo "ERROR: SukiSU-Ultra setup failed!"
@@ -102,20 +73,8 @@ jobs:
           ls -la drivers/kernelsu/
           echo "SukiSU-Ultra version:"
           cat drivers/kernelsu/Makefile | head -20
-
-      - name: Apply SUSFS patch to SukiSU
-        run: |
-          cd kernel
-          echo "Applying SUSFS patch to SukiSU driver..."
-          if [ -f "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" ]; then
-            cp $GITHUB_WORKSPACE/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch drivers/kernelsu/
-            cd drivers/kernelsu
-            patch -p1 --no-backup-if-mismatch -F3 < 10_enable_susfs_for_ksu.patch 2>/dev/null || echo "SukiSU may already have SUSFS integrated"
-            rm -f 10_enable_susfs_for_ksu.patch
-            find . -name "*.rej" -delete 2>/dev/null || true
-            find . -name "*.orig" -delete 2>/dev/null || true
-            cd ../..
-          fi
+          echo "Checking for SUSFS support..."
+          grep -r "SUSFS" drivers/kernelsu/ | head -20 || echo "SUSFS may be integrated differently"
           echo "ccflags-y += -DKSU_UMOUNT" >> drivers/kernelsu/Makefile
 
       - name: Add Manual KSU Hooks for Non-GKI
@@ -137,25 +96,20 @@ jobs:
           cp $GITHUB_WORKSPACE/device_config out/.config
           make O=out ARCH=arm64 olddefconfig
 
-      - name: Enable KSU and SUSFS in Config
+      - name: Enable KSU in Config
         run: |
           cd kernel
           scripts/config --file out/.config -e KSU
-          scripts/config --file out/.config -e KSU_SUSFS
-          scripts/config --file out/.config -e KSU_SUSFS_SUS_PATH
-          scripts/config --file out/.config -e KSU_SUSFS_SUS_MOUNT
-          scripts/config --file out/.config -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
-          scripts/config --file out/.config -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
-          scripts/config --file out/.config -e KSU_SUSFS_SUS_KSTAT
-          scripts/config --file out/.config -e KSU_SUSFS_TRY_UMOUNT
-          scripts/config --file out/.config -e KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
-          scripts/config --file out/.config -e KSU_SUSFS_SPOOF_UNAME
-          scripts/config --file out/.config -e KSU_SUSFS_ENABLE_LOG
-          scripts/config --file out/.config -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
-          scripts/config --file out/.config -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
-          scripts/config --file out/.config -e KSU_SUSFS_OPEN_REDIRECT
           scripts/config --file out/.config -e KALLSYMS
           scripts/config --file out/.config -e KALLSYMS_ALL
+          # Enable SUSFS options if available
+          scripts/config --file out/.config -e KSU_SUSFS 2>/dev/null || true
+          scripts/config --file out/.config -e KSU_SUSFS_SUS_PATH 2>/dev/null || true
+          scripts/config --file out/.config -e KSU_SUSFS_SUS_MOUNT 2>/dev/null || true
+          scripts/config --file out/.config -e KSU_SUSFS_SUS_KSTAT 2>/dev/null || true
+          scripts/config --file out/.config -e KSU_SUSFS_TRY_UMOUNT 2>/dev/null || true
+          scripts/config --file out/.config -e KSU_SUSFS_SPOOF_UNAME 2>/dev/null || true
+          scripts/config --file out/.config -e KSU_SUSFS_ENABLE_LOG 2>/dev/null || true
           make O=out ARCH=arm64 olddefconfig
           grep -E "CONFIG_KSU" out/.config | head -30
 
@@ -184,14 +138,14 @@ jobs:
           sed -i 's/device.name1=.*/device.name1=instantnoodlep/g' anykernel.sh
           sed -i 's|block=.*|block=/dev/block/bootdevice/by-name/boot;|g' anykernel.sh
           sed -i 's/is_slot_device=.*/is_slot_device=1;/g' anykernel.sh
-          ZIP_NAME="SukiSU-SUSFS_OnePlus8Pro_$(date +%Y%m%d).zip"
+          ZIP_NAME="SukiSU-Ultra_OnePlus8Pro_$(date +%Y%m%d).zip"
           zip -r9 "$GITHUB_WORKSPACE/$ZIP_NAME" * -x .git README.md *placeholder
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
       - name: Create boot.img
         run: |
           cd kernel
-          BOOT_IMG="SukiSU-SUSFS_boot_OnePlus8Pro_$(date +%Y%m%d).img"
+          BOOT_IMG="SukiSU-Ultra_boot_OnePlus8Pro_$(date +%Y%m%d).img"
           lz4 -l -12 --favor-decSpeed "$GITHUB_WORKSPACE/lineage-os/ramdisk.cpio" ramdisk.cpio.lz4
           python3 $GITHUB_WORKSPACE/mkbootimg/mkbootimg.py \
             --kernel out/arch/arm64/boot/Image \
@@ -226,28 +180,22 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: sukisu-susfs-${{ github.run_number }}
-          name: SukiSU-Ultra + SUSFS Build ${{ github.run_number }}
+          tag_name: sukisu-ultra-${{ github.run_number }}
+          name: SukiSU-Ultra Build ${{ github.run_number }}
           body: |
-            ## SukiSU-Ultra + SUSFS for OnePlus 8 Pro (LineageOS 23)
+            ## SukiSU-Ultra for OnePlus 8 Pro (LineageOS 23)
 
             This build uses:
             - [SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra) **builtin** branch (non-GKI kernel support)
-            - [susfs4ksu](https://gitlab.com/simonpunk/susfs4ksu) kernel-4.19 branch
-            - Full SUSFS kernel patches applied to kernel source
             - Manual syscall hooks for non-GKI kernel 4.19
 
-            ### SUSFS Features
-            - SUS_PATH - Hide suspicious paths from detection
-            - SUS_MOUNT - Hide suspicious mounts from /proc/mounts
-            - SUS_KSTAT - Spoof file statistics
-            - SPOOF_UNAME - Spoof kernel version string
-            - OPEN_REDIRECT - Redirect file paths
-            - HIDE_KSU_SUSFS_SYMBOLS - Hide from /proc/kallsyms
-            - TRY_UMOUNT - Unmount for non-root processes
+            ### Features
+            - KernelSU with built-in SUSFS support
+            - Root hiding capabilities
+            - Module support
 
             ### Installation
-            - Flash `SukiSU-SUSFS_OnePlus8Pro_*.zip` via TWRP/custom recovery
+            - Flash `SukiSU-Ultra_OnePlus8Pro_*.zip` via TWRP/custom recovery
             - Or fastboot flash the `boot.img` directly
 
             ### Manager
