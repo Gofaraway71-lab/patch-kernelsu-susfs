@@ -2,6 +2,7 @@ name: Build SukiSU-Ultra + SUSFS (Simple)
 
 on:
   workflow_dispatch:
+    # Simplified build based on Build 20
 
 env:
   KERNEL_SOURCE: https://github.com/LineageOS/android_kernel_oneplus_sm8250.git
@@ -159,73 +160,65 @@ jobs:
       - name: Backport path_umount and get_cred_rcu
         run: |
           cd kernel
+          echo "Adding kernel backports for 4.19..."
 
-          # Backport can_umount
           if ! grep -q "^static int can_umount" fs/namespace.c; then
-            cat >> fs/namespace.c << 'EOF'
-
-/* Backport can_umount for SUSFS/KernelSU */
-static int can_umount(const struct path *path, int flags)
-{
-    struct mount *mnt = real_mount(path->mnt);
-    if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE | UMOUNT_NOFOLLOW))
-        return -EINVAL;
-    if (!may_mount())
-        return -EPERM;
-    if (path->dentry != path->mnt->mnt_root)
-        return -EINVAL;
-    if (!check_mnt(mnt))
-        return -EINVAL;
-    if (mnt->mnt.mnt_flags & MNT_LOCKED)
-        return -EINVAL;
-    if (flags & MNT_FORCE && !capable(CAP_SYS_ADMIN))
-        return -EPERM;
-    return 0;
-}
-EOF
+            echo "" >> fs/namespace.c
+            echo "/* Backport can_umount for SUSFS/KernelSU */" >> fs/namespace.c
+            echo "static int can_umount(const struct path *path, int flags)" >> fs/namespace.c
+            echo "{" >> fs/namespace.c
+            echo "    struct mount *mnt = real_mount(path->mnt);" >> fs/namespace.c
+            echo "    if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE | UMOUNT_NOFOLLOW))" >> fs/namespace.c
+            echo "        return -EINVAL;" >> fs/namespace.c
+            echo "    if (!may_mount())" >> fs/namespace.c
+            echo "        return -EPERM;" >> fs/namespace.c
+            echo "    if (path->dentry != path->mnt->mnt_root)" >> fs/namespace.c
+            echo "        return -EINVAL;" >> fs/namespace.c
+            echo "    if (!check_mnt(mnt))" >> fs/namespace.c
+            echo "        return -EINVAL;" >> fs/namespace.c
+            echo "    if (mnt->mnt.mnt_flags & MNT_LOCKED)" >> fs/namespace.c
+            echo "        return -EINVAL;" >> fs/namespace.c
+            echo "    if (flags & MNT_FORCE && !capable(CAP_SYS_ADMIN))" >> fs/namespace.c
+            echo "        return -EPERM;" >> fs/namespace.c
+            echo "    return 0;" >> fs/namespace.c
+            echo "}" >> fs/namespace.c
           fi
 
-          # Backport path_umount
           if ! grep -q "^int path_umount" fs/namespace.c; then
-            cat >> fs/namespace.c << 'EOF'
-
-/* Backport path_umount from Linux 5.9+ for KernelSU/SUSFS */
-int path_umount(struct path *path, int flags)
-{
-    struct mount *mnt = real_mount(path->mnt);
-    int ret;
-    ret = can_umount(path, flags);
-    if (!ret)
-        ret = do_umount(mnt, flags);
-    dput(path->dentry);
-    mntput_no_expire(mnt);
-    return ret;
-}
-EXPORT_SYMBOL(path_umount);
-EOF
+            echo "" >> fs/namespace.c
+            echo "/* Backport path_umount from Linux 5.9+ for KernelSU/SUSFS */" >> fs/namespace.c
+            echo "int path_umount(struct path *path, int flags)" >> fs/namespace.c
+            echo "{" >> fs/namespace.c
+            echo "    struct mount *mnt = real_mount(path->mnt);" >> fs/namespace.c
+            echo "    int ret;" >> fs/namespace.c
+            echo "    ret = can_umount(path, flags);" >> fs/namespace.c
+            echo "    if (!ret)" >> fs/namespace.c
+            echo "        ret = do_umount(mnt, flags);" >> fs/namespace.c
+            echo "    dput(path->dentry);" >> fs/namespace.c
+            echo "    mntput_no_expire(mnt);" >> fs/namespace.c
+            echo "    return ret;" >> fs/namespace.c
+            echo "}" >> fs/namespace.c
+            echo "EXPORT_SYMBOL(path_umount);" >> fs/namespace.c
           fi
 
-          # Add declaration to internal.h
           if ! grep -q "int path_umount" fs/internal.h; then
             sed -i '/^extern void __init mnt_init/a int path_umount(struct path *path, int flags);' fs/internal.h
           fi
 
-          # Backport get_cred_rcu
           if ! grep -q "get_cred_rcu" include/linux/cred.h; then
-            cat > /tmp/get_cred_rcu.txt << 'EOF'
-
-/* Backport get_cred_rcu for KernelSU */
-static inline const struct cred *get_cred_rcu(const struct cred *cred)
-{
-    struct cred *nonconst_cred = (struct cred *) cred;
-    if (!cred)
-        return NULL;
-    if (!atomic_inc_not_zero(&nonconst_cred->usage))
-        return NULL;
-    return cred;
-}
-
-EOF
+            echo "Adding get_cred_rcu backport..."
+            echo "" > /tmp/get_cred_rcu.txt
+            echo "/* Backport get_cred_rcu for KernelSU */" >> /tmp/get_cred_rcu.txt
+            echo "static inline const struct cred *get_cred_rcu(const struct cred *cred)" >> /tmp/get_cred_rcu.txt
+            echo "{" >> /tmp/get_cred_rcu.txt
+            echo "    struct cred *nonconst_cred = (struct cred *) cred;" >> /tmp/get_cred_rcu.txt
+            echo "    if (!cred)" >> /tmp/get_cred_rcu.txt
+            echo "        return NULL;" >> /tmp/get_cred_rcu.txt
+            echo "    if (!atomic_inc_not_zero(&nonconst_cred->usage))" >> /tmp/get_cred_rcu.txt
+            echo "        return NULL;" >> /tmp/get_cred_rcu.txt
+            echo "    return cred;" >> /tmp/get_cred_rcu.txt
+            echo "}" >> /tmp/get_cred_rcu.txt
+            echo "" >> /tmp/get_cred_rcu.txt
             LINE=$(grep -n "^static inline void put_cred" include/linux/cred.h | head -1 | cut -d: -f1)
             if [ -n "$LINE" ]; then
               head -n $((LINE - 1)) include/linux/cred.h > /tmp/cred_new.h
