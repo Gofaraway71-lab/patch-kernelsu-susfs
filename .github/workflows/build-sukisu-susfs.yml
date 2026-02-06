@@ -264,7 +264,7 @@ jobs:
           scripts/config --file out/.config -e KSU_SUSFS_SUS_MAP
           # Enable KPM support
           scripts/config --file out/.config -e KPM
-          make O=out ARCH=arm64 olddefconfig
+          make O=out ARCH=arm64 salaa_deconfig
           echo "Checking KSU, SUSFS, and KPM config:"
           grep -E "CONFIG_KSU|CONFIG_THREAD_INFO|CONFIG_KPM" out/.config | head -40
 
