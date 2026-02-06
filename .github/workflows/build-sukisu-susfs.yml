@@ -241,7 +241,7 @@ jobs:
           cd kernel
           mkdir -p out
           cp $GITHUB_WORKSPACE/device_config out/.config
-          make O=out ARCH=arm64 olddefconfig
+          make O=out ARCH=arm64 salaa_deconfig
 
       - name: Enable KSU, SUSFS and KPM in Config
         run: |
