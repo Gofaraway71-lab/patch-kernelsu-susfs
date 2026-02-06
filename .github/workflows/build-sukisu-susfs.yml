@@ -39,10 +39,10 @@ jobs:
       - name: Setup GCC
         run: |
           git clone --depth=1 -b android12L-release \
-            https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.14 \
+            https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 \
             toolchains/gcc64
           git clone --depth=1 -b android12L-release \
-            https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.14 \
+            https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 \
             toolchains/gcc32
           echo "$GITHUB_WORKSPACE/toolchains/gcc64/bin" >> $GITHUB_PATH
           echo "$GITHUB_WORKSPACE/toolchains/gcc32/bin" >> $GITHUB_PATH
