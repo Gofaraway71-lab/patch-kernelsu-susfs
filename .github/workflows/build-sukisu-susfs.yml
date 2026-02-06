@@ -51,16 +51,6 @@ jobs:
         run: |
           git clone --depth=1 -b $KERNEL_BRANCH $KERNEL_SOURCE kernel
 
-      - name: Fix LineageOS 23 Bugs
-        run: |
-          cd kernel
-          sed -i 's/if (pon->log_kpd_event && (cfg->pon_type == PON_KPDPWR))/if (0)/' drivers/input/misc/qpnp-power-on.c
-          sed -i 's/if (pon->log_kpd_event) {/if (0) {/' drivers/input/misc/qpnp-power-on.c
-          sed -i '/pon->log_kpd_event = of_property_read_bool/,/"qcom,log-kpd-event");/d' drivers/input/misc/qpnp-power-on.c
-          sed -i '1i struct smb_charger;' drivers/power/supply/qcom/schgm-flash.h || true
-          sed -i '/#include "schgm-flash.h"/a #include "smb5-lib.h"' drivers/power/supply/qcom/schgm-flash.c || true
-          sed -i 's/global_zone_page_state(NR_IONCACHE_PAGES)/0/g' drivers/staging/android/ion/ion_system_heap.c || true
-
       - name: Apply SUSFS v2.0.0 patches
         run: |
           cd kernel
